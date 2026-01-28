@@ -114,6 +114,7 @@ const ProperUSDZViewer: React.FC<ProperUSDZViewerProps> = ({
             position: 'relative'
           }}
         >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={previewImageUrl}
             alt="3D Room Model - Tap to view in AR"
@@ -155,6 +156,7 @@ const ProperUSDZViewer: React.FC<ProperUSDZViewerProps> = ({
       {/* Preview Image */}
       {previewImageUrl && (
         <div className="w-full h-full relative">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={previewImageUrl}
             alt="3D Room Model Preview"

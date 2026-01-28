@@ -58,7 +58,7 @@ Your design includes optimized furniture placement, realistic 3D visualization, 
       setTimeout(() => {
         setChatHistory(prev => [...prev, { 
           type: 'ai', 
-          text: "Thanks for your message! I'm here to help you with any questions about your room design or furniture choices. What would you like to explore?", 
+          text: "Thanks for your message! I&apos;m here to help you with any questions about your room design or furniture choices. What would you like to explore?", 
           timestamp: new Date() 
         }])
         setIsTyping(false)
@@ -100,7 +100,7 @@ Your design includes optimized furniture placement, realistic 3D visualization, 
               </svg>
             </div>
             <p className="text-secondary text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
-              I'm here to help with your design!
+              I&apos;m here to help with your design!
               <br />
               <span className="text-xs text-muted" style={{ color: 'rgb(var(--text-muted))' }}>
                 Ask about furniture, layouts, or anything

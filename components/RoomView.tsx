@@ -223,6 +223,7 @@ const RoomView: React.FC<RoomViewProps> = ({
             {/* Layout Preview */}
             {previewImages?.initial && (
               <div className="absolute top-4 right-4 w-48 h-32 bg-white rounded-lg shadow-lg overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img 
                   src={previewImages.initial} 
                   alt="Initial Layout"
@@ -237,6 +238,7 @@ const RoomView: React.FC<RoomViewProps> = ({
             {/* Refined Preview */}
             {previewImages?.refined && (
               <div className="absolute top-4 right-52 w-48 h-32 bg-white rounded-lg shadow-lg overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img 
                   src={previewImages.refined} 
                   alt="Refined Layout"
@@ -251,6 +253,7 @@ const RoomView: React.FC<RoomViewProps> = ({
             {/* Top View Render */}
             {renderImages?.top && (
               <div className="absolute bottom-4 right-4 w-48 h-32 bg-white rounded-lg shadow-lg overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img 
                   src={renderImages.top} 
                   alt="Top View"
@@ -265,6 +268,7 @@ const RoomView: React.FC<RoomViewProps> = ({
             {/* Perspective View Render */}
             {renderImages?.perspective && (
               <div className="absolute bottom-4 right-52 w-48 h-32 bg-white rounded-lg shadow-lg overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img 
                   src={renderImages.perspective} 
                   alt="Perspective View"
