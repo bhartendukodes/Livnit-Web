@@ -1,0 +1,1468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Livinit Pipeline</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0b;
+            --bg-secondary: #111113;
+            --bg-tertiary: #1a1a1d;
+            --bg-elevated: #222225;
+            --border: #2a2a2e;
+            --border-subtle: #1e1e21;
+            --text-primary: #fafafa;
+            --text-secondary: #a0a0a5;
+            --text-muted: #606065;
+            --accent: #22c55e;
+            --accent-dim: #16a34a;
+            --accent-glow: rgba(34, 197, 94, 0.15);
+            --error: #ef4444;
+            --mono: 'DM Mono', monospace;
+            --sans: 'Instrument Sans', -apple-system, sans-serif;
+            --sidebar-width: 320px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--sans);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        .layout {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-mark {
+            width: 28px;
+            height: 28px;
+            background: var(--accent);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--mono);
+            font-weight: 500;
+            font-size: 12px;
+            color: var(--bg-primary);
+        }
+
+        .logo-text {
+            font-weight: 600;
+            font-size: 15px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+        }
+
+        .status-dot.online {
+            background: var(--accent);
+            box-shadow: 0 0 8px var(--accent);
+        }
+
+        .status-dot.error {
+            background: var(--error);
+            box-shadow: 0 0 8px var(--error);
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        .section {
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            padding: 0 4px;
+        }
+
+        .form-group {
+            margin-bottom: 12px;
+        }
+
+        label {
+            display: block;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-family: var(--mono);
+            font-size: 12px;
+            transition: border-color 0.2s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        input::placeholder, textarea::placeholder { color: var(--text-muted); }
+        textarea { min-height: 80px; resize: vertical; }
+
+        select {
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23606065' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            padding-right: 32px;
+        }
+
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .toggle {
+            position: relative;
+            width: 36px;
+            height: 20px;
+            background: var(--bg-elevated);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .toggle.active { background: var(--accent); }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            background: var(--text-primary);
+            border-radius: 50%;
+            transition: transform 0.2s;
+        }
+
+        .toggle.active::after { transform: translateX(16px); }
+
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            width: 100%;
+            padding: 10px 16px;
+            font-family: var(--sans);
+            font-size: 13px;
+            font-weight: 600;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: var(--bg-primary);
+        }
+
+        .btn-primary:hover { background: var(--accent-dim); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover { background: var(--bg-elevated); }
+
+        .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .nodes-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .node-tag {
+            font-family: var(--mono);
+            font-size: 10px;
+            padding: 4px 8px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .node-tag:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* Main Panel */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .main-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--bg-secondary);
+        }
+
+        .main-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .main-meta {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .main-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            background: var(--bg-primary);
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        .empty-icon {
+            width: 64px;
+            height: 64px;
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 16px;
+            font-size: 24px;
+        }
+
+        .empty-title {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 4px;
+            color: var(--text-secondary);
+        }
+
+        .empty-desc {
+            font-size: 12px;
+        }
+
+        /* Results */
+        .results {
+            display: none;
+        }
+
+        .results.active {
+            display: block;
+        }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .stat-box {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-family: var(--mono);
+            font-size: 24px;
+            font-weight: 500;
+            color: var(--accent);
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+        }
+
+        .result-section {
+            margin-bottom: 24px;
+        }
+
+        .result-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .result-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+        }
+
+        .preview-image {
+            width: 100%;
+            max-width: 800px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg-secondary);
+        }
+
+        .render-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 16px;
+        }
+
+        .render-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .render-card-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .render-card img {
+            width: 100%;
+            display: block;
+        }
+
+        .download-section {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .btn-download {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dim) 100%);
+            color: var(--bg-primary);
+            font-weight: 600;
+            font-size: 13px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .btn-download:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px var(--accent-glow);
+        }
+
+        .btn-download:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .btn-download svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .json-output {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            font-family: var(--mono);
+            font-size: 11px;
+            line-height: 1.6;
+            max-height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .json-output::-webkit-scrollbar { width: 6px; }
+        .json-output::-webkit-scrollbar-track { background: var(--bg-tertiary); border-radius: 3px; }
+        .json-output::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 8px;
+            padding: 16px;
+            color: var(--error);
+            font-size: 13px;
+        }
+
+
+        /* Pipeline Progress */
+        .pipeline-progress {
+            margin-bottom: 24px;
+        }
+
+        .progress-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .progress-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .progress-meta {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .progress-nodes {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .progress-node {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .progress-node.active {
+            border-color: var(--accent);
+            background: var(--accent-glow);
+        }
+
+        .progress-node.completed {
+            opacity: 0.6;
+        }
+
+        .progress-node.pending {
+            opacity: 0.4;
+        }
+
+        .progress-node.error {
+            border-color: var(--error);
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .progress-node.error .node-indicator {
+            border-color: var(--error);
+            background: var(--error);
+            color: white;
+        }
+
+        .node-result.error {
+            border-left-color: var(--error);
+            color: var(--error);
+        }
+
+        .node-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--bg-tertiary);
+            border: 2px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            flex-shrink: 0;
+        }
+
+        .progress-node.active .node-indicator {
+            border-color: var(--accent);
+            background: var(--accent);
+            animation: pulse 1s infinite;
+        }
+
+        .progress-node.completed .node-indicator {
+            border-color: var(--accent);
+            background: var(--accent);
+            color: var(--bg-primary);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .node-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .node-name {
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--text-primary);
+        }
+
+        .node-time {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .node-progress {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 4px;
+        }
+
+        .progress-bar {
+            flex: 1;
+            height: 4px;
+            background: var(--bg-tertiary);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: var(--accent);
+            transition: width 0.2s;
+        }
+
+        .progress-text {
+            font-family: var(--mono);
+            font-size: 10px;
+            color: var(--accent);
+            min-width: 60px;
+            text-align: right;
+        }
+
+        .node-result {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin: 8px 0 16px 32px;
+            padding: 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent);
+            border-radius: 0 6px 6px 0;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            line-height: 1.5;
+            position: relative;
+        }
+
+        .copy-btn {
+            float: right;
+            position: sticky;
+            top: 8px;
+            width: 28px;
+            height: 28px;
+            margin: 0 0 8px 8px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.2s, background 0.2s;
+        }
+
+        .node-result:hover .copy-btn { opacity: 1; }
+        .copy-btn:hover { background: var(--bg-tertiary); border-color: var(--accent); }
+        .copy-btn svg { width: 14px; height: 14px; stroke: var(--text-secondary); }
+        .copy-btn:hover svg { stroke: var(--accent); }
+        .copy-btn.copied { background: var(--accent); border-color: var(--accent); }
+        .copy-btn.copied svg { stroke: var(--bg-primary); }
+
+        .node-result.has-image {
+            max-height: none;
+            overflow: visible;
+            padding: 0;
+            background: transparent;
+            border: none;
+        }
+
+        .node-result::-webkit-scrollbar { width: 4px; }
+        .node-result::-webkit-scrollbar-track { background: transparent; }
+        .node-result::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        .node-preview-image {
+            width: 100%;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+
+        .result-row {
+            display: flex;
+            margin-bottom: 4px;
+        }
+
+        .result-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .result-key {
+            color: var(--accent);
+            min-width: 140px;
+            flex-shrink: 0;
+        }
+
+        .result-value {
+            color: var(--text-muted);
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-mark">LV</div>
+                    <div class="logo-text">Livinit</div>
+                </div>
+                <div class="status-dot" id="statusDot" title="API Status"></div>
+            </div>
+
+            <div class="sidebar-content">
+                <!-- Pipeline Section -->
+                <div class="section">
+                    <div class="section-title">Run Pipeline</div>
+                    <div class="form-group">
+                        <label>User Intent</label>
+                        <input type="text" id="userIntent" value="Modern minimalist living room">
+                    </div>
+                    <div class="form-group">
+                        <label>Budget ($)</label>
+                        <input type="number" id="budget" value="2000" min="0" step="100">
+                    </div>
+                    <div class="form-group">
+                        <label>USDZ Path</label>
+                        <input type="text" id="usdzPath" value="dataset/room/Project-2510280721.usdz">
+                    </div>
+                    <div class="form-group">
+                        <div class="toggle-row">
+                            <span>Run RAG Scope</span>
+                            <div class="toggle" id="runRagScopeToggle" onclick="toggleOption('runRagScopeToggle')"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <div class="toggle-row">
+                            <span>Run Select Assets</span>
+                            <div class="toggle active" id="runSelectAssetsToggle" onclick="toggleOption('runSelectAssetsToggle')"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <div class="toggle-row">
+                            <span>Run Initial Layout</span>
+                            <div class="toggle active" id="runInitialLayoutToggle" onclick="toggleOption('runInitialLayoutToggle')"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <div class="toggle-row">
+                            <span>Run Refine Layout</span>
+                            <div class="toggle active" id="runRefineLayoutToggle" onclick="toggleOption('runRefineLayoutToggle')"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <div class="toggle-row">
+                            <span>Run LayoutVLM</span>
+                            <div class="toggle active" id="runLayoutVLMToggle" onclick="toggleOption('runLayoutVLMToggle')"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <div class="toggle-row">
+                            <span>Run Render Scene</span>
+                            <div class="toggle active" id="runRenderSceneToggle" onclick="toggleOption('runRenderSceneToggle')"></div>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" id="runPipelineBtn" onclick="runPipeline()">
+                        <span>Run Pipeline</span>
+                    </button>
+                </div>
+
+                <!-- Debug Section -->
+                <div class="section">
+                    <div class="section-title">Debug Node</div>
+                    <div class="form-group">
+                        <label>Select Node</label>
+                        <select id="nodeSelect" onchange="loadMockData(this.value)"></select>
+                    </div>
+                    <div class="form-group">
+                        <div class="toggle-row">
+                            <span>Use Mock Data</span>
+                            <div class="toggle active" id="useMockToggle" onclick="toggleMock()"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Custom State (JSON)</label>
+                        <textarea id="customState" placeholder='{"key": "value"}'></textarea>
+                    </div>
+                    <button class="btn btn-secondary" id="runNodeBtn" onclick="runNode()">
+                        <span>Run Node</span>
+                    </button>
+                </div>
+
+                <!-- Nodes List -->
+                <div class="section">
+                    <div class="section-title">Available Nodes</div>
+                    <div class="nodes-grid" id="nodesGrid">
+                        <span style="color: var(--text-muted); font-size: 11px;">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Panel -->
+        <main class="main">
+            <div class="main-header">
+                <span class="main-title" id="mainTitle">Results</span>
+                <span class="main-meta" id="mainMeta"></span>
+            </div>
+
+            <div class="main-content">
+                <!-- Empty State -->
+                <div class="empty-state" id="emptyState">
+                    <div class="empty-icon">⚡</div>
+                    <div class="empty-title">No results yet</div>
+                    <div class="empty-desc">Run the pipeline or a debug node to see results</div>
+                </div>
+
+                <!-- Pipeline Progress -->
+                <div class="pipeline-progress" id="pipelineProgress" style="display: none;">
+                    <div class="progress-header">
+                        <span class="progress-title">Running Pipeline</span>
+                        <span class="progress-meta" id="progressMeta"></span>
+                    </div>
+                    <div class="progress-nodes" id="progressNodes"></div>
+
+                    <!-- Inline Results (shown after pipeline completes) -->
+                    <div id="pipelineResults" style="display: none; margin-top: 24px;">
+                        <!-- Download Section -->
+                        <div class="download-section" id="pipelineDownloadSection" style="display: none;">
+                            <a class="btn-download" id="pipelineDownloadBtn" href="#" download>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7 10 12 15 17 10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                Download USDZ
+                            </a>
+                        </div>
+
+                        <!-- 3D Renders -->
+                        <div class="result-section" id="pipelineRendersSection" style="display: none;">
+                            <div class="result-label">3D Scene Renders</div>
+                            <div class="render-grid">
+                                <div class="render-card">
+                                    <div class="render-card-header">Top View</div>
+                                    <img id="pipelineRenderTop" src="" alt="Top View">
+                                </div>
+                                <div class="render-card">
+                                    <div class="render-card-header">Side View</div>
+                                    <img id="pipelineRenderSide" src="" alt="Side View">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2D Layout Previews -->
+                        <div class="result-section" id="pipelinePreviewSection" style="display: none;">
+                            <div class="result-label">Layout Previews (2D)</div>
+                            <div class="render-grid">
+                                <div class="render-card" id="pipelinePreviewInitialCard" style="display: none;">
+                                    <div class="render-card-header">Initial Layout</div>
+                                    <img id="pipelinePreviewInitial" src="" alt="Initial Layout">
+                                </div>
+                                <div class="render-card" id="pipelinePreviewRefineCard" style="display: none;">
+                                    <div class="render-card-header">Refined Layout</div>
+                                    <img id="pipelinePreviewRefine" src="" alt="Refined Layout">
+                                </div>
+                                <div class="render-card" id="pipelinePreviewPostCard" style="display: none;">
+                                    <div class="render-card-header">Optimized Layout</div>
+                                    <img id="pipelinePreviewPost" src="" alt="Optimized Layout">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- LayoutVLM GIF -->
+                        <div class="result-section" id="pipelineGifSection" style="display: none;">
+                            <div class="result-label">LayoutVLM Optimization</div>
+                            <img id="pipelineGifImage" class="preview-image" src="" alt="LayoutVLM Optimization">
+                        </div>
+
+                        <!-- JSON Output -->
+                        <div class="result-section" id="pipelineJsonSection">
+                            <div class="result-label">Pipeline Output</div>
+                            <div class="json-output" id="pipelineJsonOutput"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results -->
+                <div class="results" id="resultsPanel">
+                    <div class="stats-row" id="statsRow"></div>
+
+                    <!-- Download Section -->
+                    <div class="download-section" id="downloadSection" style="display: none;">
+                        <a class="btn-download" id="downloadUsdzBtn" href="#" download>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="7 10 12 15 17 10"/>
+                                <line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            Download USDZ
+                        </a>
+                    </div>
+
+                    <!-- 3D Renders Section -->
+                    <div class="result-section" id="rendersSection" style="display: none;">
+                        <div class="result-label">3D Scene Renders</div>
+                        <div class="render-grid">
+                            <div class="render-card">
+                                <div class="render-card-header">Top View</div>
+                                <img id="renderTopImage" src="" alt="Top View">
+                            </div>
+                            <div class="render-card">
+                                <div class="render-card-header">Side View</div>
+                                <img id="renderSideImage" src="" alt="Side View">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="result-section" id="previewSection" style="display: none;">
+                        <div class="result-label">Layout Preview (2D)</div>
+                        <img id="previewImage" class="preview-image" src="" alt="Layout Preview">
+                    </div>
+
+                    <div class="result-section" id="jsonSection">
+                        <div class="result-label">Response Data</div>
+                        <div class="json-output" id="jsonOutput"></div>
+                    </div>
+
+                    <div id="errorContainer" style="display: none;"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let useMock = true;
+
+        function copyToClipboard(btn, event) {
+            event.stopPropagation();
+            const container = btn.parentElement;
+            const json = container.dataset.json;
+            if (!json) return;
+
+            const textarea = document.createElement('textarea');
+            textarea.value = json;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+
+            btn.classList.add('copied');
+            setTimeout(() => btn.classList.remove('copied'), 1000);
+        }
+
+        async function checkHealth() {
+            const dot = document.getElementById('statusDot');
+            try {
+                const res = await fetch(`${API_BASE}/health`);
+                dot.className = res.ok ? 'status-dot online' : 'status-dot error';
+            } catch {
+                dot.className = 'status-dot error';
+            }
+        }
+
+        async function loadNodes() {
+            const grid = document.getElementById('nodesGrid');
+            const select = document.getElementById('nodeSelect');
+            try {
+                const res = await fetch(`${API_BASE}/nodes`);
+                const data = await res.json();
+                grid.innerHTML = data.nodes.map(node =>
+                    `<span class="node-tag" onclick="selectNode('${node}')">${node}</span>`
+                ).join('');
+                select.innerHTML = data.nodes.map(node =>
+                    `<option value="${node}">${node}</option>`
+                ).join('');
+                loadMockData(data.nodes[0]);
+            } catch {
+                grid.innerHTML = '<span style="color: var(--error); font-size: 11px;">Failed to load</span>';
+            }
+        }
+
+        function selectNode(name) {
+            document.getElementById('nodeSelect').value = name;
+            loadMockData(name);
+        }
+
+        async function loadMockData(nodeName) {
+            if (!useMock) return;
+            const textarea = document.getElementById('customState');
+            textarea.value = 'Loading...';
+            try {
+                const res = await fetch(`${API_BASE}/nodes/${nodeName}/mock`);
+                const data = await res.json();
+                textarea.value = JSON.stringify(data, null, 2);
+            } catch {
+                textarea.value = '{}';
+            }
+        }
+
+        function toggleMock() {
+            const toggle = document.getElementById('useMockToggle');
+            useMock = !useMock;
+            toggle.classList.toggle('active', useMock);
+            if (useMock) loadMockData(document.getElementById('nodeSelect').value);
+            else document.getElementById('customState').value = '';
+        }
+
+        function toggleOption(toggleId) {
+            const toggle = document.getElementById(toggleId);
+            toggle.classList.toggle('active');
+        }
+
+        function setLoading(btn, loading) {
+            const text = btn.querySelector('span') || btn;
+            const originalText = btn.dataset.text || text.textContent;
+            btn.dataset.text = originalText;
+            if (loading) {
+                btn.disabled = true;
+                btn.innerHTML = '<div class="spinner"></div><span>Running...</span>';
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = `<span>${originalText}</span>`;
+            }
+        }
+
+        function showResults(data, title, elapsed, hasPreview, previewUrl, runName) {
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('resultsPanel').classList.add('active');
+            document.getElementById('mainTitle').textContent = title;
+            document.getElementById('mainMeta').textContent = elapsed ? `${elapsed}s` : '';
+
+            // Stats
+            const statsRow = document.getElementById('statsRow');
+            if (data.selected_uids || data.total_cost !== undefined) {
+                statsRow.innerHTML = `
+                    <div class="stat-box">
+                        <div class="stat-value">${data.selected_uids?.length || 0}</div>
+                        <div class="stat-label">Assets</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value">$${(data.total_cost || 0).toFixed(0)}</div>
+                        <div class="stat-label">Cost</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value">${Object.keys(data.layoutvlm_layout || {}).length}</div>
+                        <div class="stat-label">Placements</div>
+                    </div>
+                `;
+                statsRow.style.display = 'grid';
+            } else {
+                statsRow.style.display = 'none';
+            }
+
+            // Download USDZ button
+            const downloadSection = document.getElementById('downloadSection');
+            const downloadBtn = document.getElementById('downloadUsdzBtn');
+            if (runName && data.final_usdz_path) {
+                downloadBtn.href = `${API_BASE}/download/usdz/${runName}`;
+                downloadSection.style.display = 'flex';
+            } else {
+                downloadSection.style.display = 'none';
+            }
+
+            // 3D Renders
+            const rendersSection = document.getElementById('rendersSection');
+            if (runName && (data.render_top_view || data.render_perspective_view)) {
+                const t = Date.now();
+                if (data.render_top_view) {
+                    document.getElementById('renderTopImage').src = `${API_BASE}/render/${runName}/top?t=${t}`;
+                }
+                if (data.render_perspective_view) {
+                    document.getElementById('renderSideImage').src = `${API_BASE}/render/${runName}/perspective?t=${t}`;
+                }
+                rendersSection.style.display = 'block';
+            } else {
+                rendersSection.style.display = 'none';
+            }
+
+            // 2D Preview - show if available
+            const previewSection = document.getElementById('previewSection');
+            if (hasPreview && previewUrl) {
+                document.getElementById('previewImage').src = previewUrl;
+                previewSection.style.display = 'block';
+            } else {
+                previewSection.style.display = 'none';
+            }
+
+            // JSON - always show
+            document.getElementById('jsonSection').style.display = 'block';
+            document.getElementById('jsonOutput').textContent = JSON.stringify(data, null, 2);
+            document.getElementById('errorContainer').style.display = 'none';
+        }
+
+        function showError(message) {
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('resultsPanel').classList.add('active');
+            document.getElementById('statsRow').style.display = 'none';
+            document.getElementById('downloadSection').style.display = 'none';
+            document.getElementById('rendersSection').style.display = 'none';
+            document.getElementById('previewSection').style.display = 'none';
+            document.getElementById('jsonSection').style.display = 'none';
+            document.getElementById('errorContainer').innerHTML = `<div class="error-message">${message}</div>`;
+            document.getElementById('errorContainer').style.display = 'block';
+        }
+
+        let pipelineNodes = [];
+        let nodeElapsedTimes = {};
+
+        function showProgress(nodes) {
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('resultsPanel').classList.remove('active');
+            document.getElementById('pipelineProgress').style.display = 'block';
+
+            // Reset inline results
+            document.getElementById('pipelineResults').style.display = 'none';
+            document.getElementById('pipelineDownloadSection').style.display = 'none';
+            document.getElementById('pipelineRendersSection').style.display = 'none';
+            document.getElementById('pipelinePreviewSection').style.display = 'none';
+            document.getElementById('pipelinePreviewInitialCard').style.display = 'none';
+            document.getElementById('pipelinePreviewRefineCard').style.display = 'none';
+            document.getElementById('pipelinePreviewPostCard').style.display = 'none';
+            document.getElementById('pipelineGifSection').style.display = 'none';
+
+            const container = document.getElementById('progressNodes');
+            container.innerHTML = nodes.map((name, idx) => `
+                <div class="progress-node pending" id="node-${idx}">
+                    <div class="node-indicator">${idx + 1}</div>
+                    <div class="node-info">
+                        <div class="node-name">${name}</div>
+                        <div class="node-time" id="node-time-${idx}"></div>
+                        <div class="node-progress" id="node-progress-${idx}" style="display: none;">
+                            <div class="progress-bar"><div class="progress-bar-fill" id="node-progress-fill-${idx}"></div></div>
+                            <span class="progress-text" id="node-progress-text-${idx}"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="node-result" id="node-result-${idx}" style="display: none;"></div>
+            `).join('');
+        }
+
+        function updateNodeStatus(index, status, elapsed, result) {
+            const node = document.getElementById(`node-${index}`);
+            if (!node) return;
+
+            node.className = `progress-node ${status}`;
+            if (elapsed !== undefined) {
+                nodeElapsedTimes[index] = elapsed;
+                document.getElementById(`node-time-${index}`).textContent = `${elapsed}s`;
+            }
+
+            // Hide progress bar when completed
+            if (status === 'completed') {
+                const progressEl = document.getElementById(`node-progress-${index}`);
+                if (progressEl) progressEl.style.display = 'none';
+            }
+
+            if (result && Object.keys(result).length > 0) {
+                const resultContainer = document.getElementById(`node-result-${index}`);
+                resultContainer.style.display = 'block';
+                const jsonStr = JSON.stringify(result, null, 2);
+                const copyBtn = `<button class="copy-btn" onclick="copyToClipboard(this, event)" title="Copy JSON"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+
+                // Check if this is layout_preview with an image path
+                const previewPath = result.layout_preview_post_path || result.layout_preview_refine_path || result.layout_preview_path;
+                if (previewPath) {
+                    const match = previewPath.match(/runs\/([^\/]+)/);
+                    if (match) {
+                        const runName = match[1];
+                        const endpoint = result.layout_preview_post_path ? 'preview-post' : result.layout_preview_refine_path ? 'preview-refine' : 'preview';
+                        resultContainer.classList.add('has-image');
+                        resultContainer.innerHTML = `<img class="node-preview-image" src="${API_BASE}/${endpoint}/${runName}?t=${Date.now()}" alt="Layout Preview">`;
+                    } else {
+                        resultContainer.innerHTML = copyBtn + jsonStr;
+                    }
+                } else {
+                    resultContainer.innerHTML = copyBtn + jsonStr;
+                }
+                resultContainer.dataset.json = jsonStr;
+            }
+
+            const completed = Object.keys(nodeElapsedTimes).length;
+            const total = pipelineNodes.length;
+            const totalTime = Object.values(nodeElapsedTimes).reduce((a, b) => a + b, 0);
+            document.getElementById('progressMeta').textContent = `${completed}/${total} nodes • ${totalTime.toFixed(2)}s`;
+        }
+
+        function updateNodeProgress(index, current, total) {
+            const progressEl = document.getElementById(`node-progress-${index}`);
+            const fillEl = document.getElementById(`node-progress-fill-${index}`);
+            const textEl = document.getElementById(`node-progress-text-${index}`);
+            if (!progressEl || !fillEl || !textEl) return;
+
+            progressEl.style.display = 'flex';
+            const pct = total > 0 ? (current / total) * 100 : 0;
+            fillEl.style.width = `${pct}%`;
+            textEl.textContent = `${current}/${total}`;
+        }
+
+        function hideProgress() {
+            document.getElementById('pipelineProgress').style.display = 'none';
+        }
+
+        function showPipelineInlineResults(data, runName) {
+            const resultsContainer = document.getElementById('pipelineResults');
+            resultsContainer.style.display = 'block';
+
+            // Update progress header
+            document.getElementById('progressMeta').innerHTML += ' <span style="color: var(--accent);">✓ Complete</span>';
+
+            // Download USDZ button
+            const downloadSection = document.getElementById('pipelineDownloadSection');
+            const downloadBtn = document.getElementById('pipelineDownloadBtn');
+            if (runName && data.final_usdz_path) {
+                downloadBtn.href = `${API_BASE}/download/usdz/${runName}`;
+                downloadSection.style.display = 'flex';
+            }
+
+            // 3D Renders
+            const rendersSection = document.getElementById('pipelineRendersSection');
+            if (runName && (data.render_top_view || data.render_perspective_view)) {
+                const t = Date.now();
+                if (data.render_top_view) {
+                    document.getElementById('pipelineRenderTop').src = `${API_BASE}/render/${runName}/top?t=${t}`;
+                }
+                if (data.render_perspective_view) {
+                    document.getElementById('pipelineRenderSide').src = `${API_BASE}/render/${runName}/perspective?t=${t}`;
+                }
+                rendersSection.style.display = 'block';
+            }
+
+            // 2D Layout Previews (show all available)
+            const previewSection = document.getElementById('pipelinePreviewSection');
+            if (runName) {
+                const t = Date.now();
+                let hasPreview = false;
+                if (data.layout_preview_path) {
+                    document.getElementById('pipelinePreviewInitial').src = `${API_BASE}/preview/${runName}?t=${t}`;
+                    document.getElementById('pipelinePreviewInitialCard').style.display = 'block';
+                    hasPreview = true;
+                }
+                if (data.layout_preview_refine_path) {
+                    document.getElementById('pipelinePreviewRefine').src = `${API_BASE}/preview-refine/${runName}?t=${t}`;
+                    document.getElementById('pipelinePreviewRefineCard').style.display = 'block';
+                    hasPreview = true;
+                }
+                if (data.layout_preview_post_path) {
+                    document.getElementById('pipelinePreviewPost').src = `${API_BASE}/preview-post/${runName}?t=${t}`;
+                    document.getElementById('pipelinePreviewPostCard').style.display = 'block';
+                    hasPreview = true;
+                }
+                if (hasPreview) previewSection.style.display = 'block';
+            }
+
+            // LayoutVLM GIF
+            const gifSection = document.getElementById('pipelineGifSection');
+            if (runName && data.layoutvlm_gif_path) {
+                document.getElementById('pipelineGifImage').src = `${API_BASE}/layoutvlm-gif/${runName}?t=${Date.now()}`;
+                gifSection.style.display = 'block';
+            }
+
+            // JSON Output
+            document.getElementById('pipelineJsonOutput').textContent = JSON.stringify(data, null, 2);
+        }
+
+        function showNodeError(index, message) {
+            const resultContainer = document.getElementById(`node-result-${index}`);
+            if (resultContainer) {
+                resultContainer.style.display = 'block';
+                resultContainer.classList.add('error');
+                resultContainer.textContent = message;
+            }
+        }
+
+        async function runPipeline() {
+            const btn = document.getElementById('runPipelineBtn');
+            setLoading(btn, true);
+            nodeElapsedTimes = {};
+
+            const body = JSON.stringify({
+                user_intent: document.getElementById('userIntent').value,
+                budget: parseFloat(document.getElementById('budget').value),
+                usdz_path: document.getElementById('usdzPath').value,
+                run_rag_scope: document.getElementById('runRagScopeToggle').classList.contains('active'),
+                run_select_assets: document.getElementById('runSelectAssetsToggle').classList.contains('active'),
+                run_initial_layout: document.getElementById('runInitialLayoutToggle').classList.contains('active'),
+                run_refine_layout: document.getElementById('runRefineLayoutToggle').classList.contains('active'),
+                run_layoutvlm: document.getElementById('runLayoutVLMToggle').classList.contains('active'),
+                run_render_scene: document.getElementById('runRenderSceneToggle').classList.contains('active')
+            });
+
+            try {
+                const res = await fetch(`${API_BASE}/pipeline`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body
+                });
+
+                console.log('Response status:', res.status);
+                if (!res.ok) {
+                    const text = await res.text();
+                    console.error('Response error:', text);
+                    showError(text);
+                    setLoading(btn, false);
+                    return;
+                }
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                console.log('Starting to read stream...');
+                while (true) {
+                    const { done, value } = await reader.read();
+                    console.log('Read chunk:', done, value?.length);
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    console.log('Decoded chunk:', chunk);
+                    buffer += chunk;
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        console.log('Processing line:', line);
+                        if (!line.startsWith('data: ')) continue;
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            console.log('SSE event:', data);
+
+                            switch (data.type) {
+                                case 'start':
+                                    pipelineNodes = data.nodes;
+                                    showProgress(data.nodes);
+                                    break;
+                                case 'node_start':
+                                    updateNodeStatus(data.index, 'active');
+                                    break;
+                                case 'node_progress':
+                                    updateNodeProgress(data.index, data.current, data.total);
+                                    break;
+                                case 'node_complete':
+                                    updateNodeStatus(data.index, 'completed', data.elapsed, data.result);
+                                    break;
+                                case 'complete':
+                                    const totalTime = Object.values(nodeElapsedTimes).reduce((a, b) => a + b, 0);
+                                    const runName = data.data?.run_dir;
+                                    document.getElementById('progressMeta').textContent = `${pipelineNodes.length}/${pipelineNodes.length} nodes • ${totalTime.toFixed(2)}s`;
+                                    showPipelineInlineResults(data.data, runName);
+                                    break;
+                                case 'heartbeat':
+                                    // Update elapsed time to show progress during long operations
+                                    document.getElementById(`node-time-${data.index}`).textContent = `${data.elapsed}s...`;
+                                    break;
+                                case 'error':
+                                    updateNodeStatus(data.index, 'error', data.elapsed, null);
+                                    showNodeError(data.index, data.message);
+                                    break;
+                            }
+                        } catch (e) {
+                            console.error('SSE parse error:', e, line);
+                        }
+                    }
+                }
+            } catch (err) {
+                hideProgress();
+                showError(err.message);
+            }
+
+            setLoading(btn, false);
+        }
+
+        async function runNode() {
+            const btn = document.getElementById('runNodeBtn');
+            const nodeName = document.getElementById('nodeSelect').value;
+
+            let customState = null;
+            const stateText = document.getElementById('customState').value.trim();
+            if (stateText) {
+                try {
+                    customState = JSON.parse(stateText);
+                } catch {
+                    showError('Invalid JSON in custom state');
+                    return;
+                }
+            }
+
+            setLoading(btn, true);
+            nodeElapsedTimes = {};
+            pipelineNodes = [nodeName];
+            showProgress([nodeName]);
+            updateNodeStatus(0, 'active');
+
+            const startTime = performance.now();
+
+            try {
+                const res = await fetch(`${API_BASE}/nodes/${nodeName}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        node_name: nodeName,
+                        use_mock: useMock,
+                        state: customState
+                    })
+                });
+
+                const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+                const data = await res.json();
+
+                if (res.ok) {
+                    updateNodeStatus(0, 'completed', parseFloat(elapsed), data.result);
+                    document.getElementById('progressMeta').innerHTML = `1/1 nodes • ${elapsed}s <span style="color: var(--accent);">✓ Complete</span>`;
+                } else {
+                    updateNodeStatus(0, 'error', parseFloat(elapsed), null);
+                    showNodeError(0, data.detail || 'Node execution failed');
+                }
+            } catch (err) {
+                updateNodeStatus(0, 'error', 0, null);
+                showNodeError(0, err.message);
+            }
+
+            setLoading(btn, false);
+        }
+
+        checkHealth();
+        loadNodes();
+        setInterval(checkHealth, 30000);
+    </script>
+</body>
+</html>

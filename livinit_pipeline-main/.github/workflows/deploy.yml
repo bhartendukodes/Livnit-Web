@@ -1,0 +1,31 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 135.181.63.185
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 30m
+          envs: ENV_FILE
+          script: |
+            REPO_URL="https://${{ secrets.GIT_USER_NAME }}:${{ secrets.GIT_PAT }}@github.com/${{ github.repository }}.git"
+            if [ ! -d ~/livinit-pipeline/.git ]; then
+              rm -rf ~/livinit-pipeline
+              git clone "$REPO_URL" ~/livinit-pipeline
+            fi
+            cd ~/livinit-pipeline
+            git remote set-url origin "$REPO_URL"
+            git fetch origin && git reset --hard origin/main
+            echo "$ENV_FILE" > .env
+            docker compose up -d --build --no-deps api
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}

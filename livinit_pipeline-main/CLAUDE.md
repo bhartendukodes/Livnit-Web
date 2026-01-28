@@ -1,0 +1,11 @@
+## Rules
+- do not over engineer, aim for simlicity and elegant of implement.
+- remove old logics with new one instead of adding more logics.
+- no need fallbacks as we have strict input.
+- no testing needed to keep code size small and go fast.
+- no documentation needed as we change stuffs fast.
+- no need __init__.py as we are on python 3.13
+- dont create helper if it can be one line inline to make code easier to follow.
+- while you at it: clean obsoletes or over engineered code and consolidate duplicated code
+- do not commit by yourself
+- when you use read, always read whole file.
