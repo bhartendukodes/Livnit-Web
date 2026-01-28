@@ -1,6 +1,32 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  
+  // Image optimization configuration
+  images: {
+    unoptimized: false,
+    remotePatterns: [],
+    formats: ['image/avif', 'image/webp'],
+  },
+  
+  // Webpack configuration for Three.js and model-viewer
+  webpack: (config, { isServer }) => {
+    // Fix for Three.js and model-viewer
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+        crypto: false,
+      }
+    }
+    
+    // Handle model-viewer and Three.js properly
+    config.externals = config.externals || []
+    
+    return config
+  },
+  
   // Allow access to backend API
   async rewrites() {
     return [
@@ -10,6 +36,7 @@ const nextConfig = {
       },
     ]
   },
+  
   // Configure headers for development
   async headers() {
     return [
@@ -31,6 +58,14 @@ const nextConfig = {
         ],
       },
     ]
+  },
+  
+  // Output configuration
+  output: 'standalone',
+  
+  // Experimental features
+  experimental: {
+    optimizePackageImports: ['three', '@google/model-viewer'],
   },
 }
 

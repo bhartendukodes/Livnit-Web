@@ -7,6 +7,7 @@ interface AnimatedSectionProps {
   animation?: 'slide-up' | 'slide-left' | 'slide-right' | 'fade-in' | 'scale-in'
   delay?: number
   className?: string
+  style?: React.CSSProperties
   threshold?: number
   triggerOnce?: boolean
 }
@@ -16,6 +17,7 @@ const AnimatedSection: React.FC<AnimatedSectionProps> = ({
   animation = 'slide-up',
   delay = 0,
   className = '',
+  style,
   threshold = 0.1,
   triggerOnce = true
 }) => {
@@ -74,6 +76,7 @@ const AnimatedSection: React.FC<AnimatedSectionProps> = ({
       className={`${className} ${
         isVisible ? getAnimationClass() : 'opacity-0'
       }`}
+      style={style}
     >
       {children}
     </div>
