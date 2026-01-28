@@ -39,6 +39,9 @@ const ThreeJSUSDZViewer: React.FC<ThreeJSUSDZViewerProps> = ({ usdzBlob }) => {
       return
     }
 
+    // Capture container ref for cleanup
+    const container = containerRef.current
+
     console.log('🎬 ThreeJSUSDZViewer: Initializing Three.js scene...')
     setIsLoading(true)
     setError(null)
@@ -51,7 +54,7 @@ const ThreeJSUSDZViewer: React.FC<ThreeJSUSDZViewerProps> = ({ usdzBlob }) => {
     // Camera setup
     const camera = new THREE.PerspectiveCamera(
       75,
-      containerRef.current.clientWidth / containerRef.current.clientHeight,
+      container.clientWidth / container.clientHeight,
       0.1,
       1000
     )
@@ -60,11 +63,11 @@ const ThreeJSUSDZViewer: React.FC<ThreeJSUSDZViewerProps> = ({ usdzBlob }) => {
 
     // Renderer setup
     const renderer = new THREE.WebGLRenderer({ antialias: true })
-    renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight)
+    renderer.setSize(container.clientWidth, container.clientHeight)
     renderer.setPixelRatio(window.devicePixelRatio)
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
-    containerRef.current.appendChild(renderer.domElement)
+    container.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
     // Lighting
@@ -137,11 +140,11 @@ const ThreeJSUSDZViewer: React.FC<ThreeJSUSDZViewerProps> = ({ usdzBlob }) => {
 
     // Handle resize
     const handleResize = () => {
-      if (!containerRef.current || !cameraRef.current || !rendererRef.current) return
+      if (!container || !cameraRef.current || !rendererRef.current) return
       
-      cameraRef.current.aspect = containerRef.current.clientWidth / containerRef.current.clientHeight
+      cameraRef.current.aspect = container.clientWidth / container.clientHeight
       cameraRef.current.updateProjectionMatrix()
-      rendererRef.current.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight)
+      rendererRef.current.setSize(container.clientWidth, container.clientHeight)
     }
     window.addEventListener('resize', handleResize)
 
@@ -152,8 +155,8 @@ const ThreeJSUSDZViewer: React.FC<ThreeJSUSDZViewerProps> = ({ usdzBlob }) => {
       // Dispose of Three.js resources
       if (rendererRef.current) {
         rendererRef.current.dispose()
-        if (containerRef.current && rendererRef.current.domElement.parentNode) {
-          containerRef.current.removeChild(rendererRef.current.domElement)
+        if (container && rendererRef.current.domElement.parentNode) {
+          container.removeChild(rendererRef.current.domElement)
         }
       }
       
