@@ -313,10 +313,12 @@ export class ApiClient {
 
   /**
    * Download final USDZ file
+   * Uses Next.js API route to proxy the request and avoid CORS issues
    */
   async downloadUSDZ(runDir: string): Promise<Blob> {
     try {
-      const response = await fetch(`${this.baseURL}/download/usdz/${runDir}`)
+      // Use Next.js API route to proxy the request (server-side, no CORS)
+      const response = await fetch(`/api/download/usdz/${runDir}`)
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Download failed' }))
@@ -341,16 +343,12 @@ export class ApiClient {
 
   /**
    * Get layout preview image
+   * Uses Next.js API route to proxy the request and avoid CORS issues
    */
   async getPreview(runDir: string, type: 'initial' | 'refine' | 'post' = 'initial'): Promise<Blob> {
-    const endpoint = type === 'initial' 
-      ? `/preview/${runDir}`
-      : type === 'refine' 
-        ? `/preview-refine/${runDir}`
-        : `/preview-post/${runDir}`
-
     try {
-      const response = await fetch(`${this.baseURL}${endpoint}`)
+      // Use Next.js API route to proxy the request (server-side, no CORS)
+      const response = await fetch(`/api/preview/${runDir}?type=${type}`)
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Preview not found' }))
@@ -375,10 +373,12 @@ export class ApiClient {
 
   /**
    * Get rendered view image (top or perspective)
+   * Uses Next.js API route to proxy the request and avoid CORS issues
    */
   async getRender(runDir: string, view: 'top' | 'perspective'): Promise<Blob> {
     try {
-      const response = await fetch(`${this.baseURL}/render/${runDir}/${view}`)
+      // Use Next.js API route to proxy the request (server-side, no CORS)
+      const response = await fetch(`/api/render/${runDir}/${view}`)
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Render not found' }))
@@ -403,10 +403,12 @@ export class ApiClient {
 
   /**
    * Get optimization GIF
+   * Uses Next.js API route to proxy the request and avoid CORS issues
    */
   async getOptimizationGif(runDir: string): Promise<Blob> {
     try {
-      const response = await fetch(`${this.baseURL}/layoutvlm-gif/${runDir}`)
+      // Use Next.js API route to proxy the request (server-side, no CORS)
+      const response = await fetch(`/api/layoutvlm-gif/${runDir}`)
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Optimization GIF not found' }))
