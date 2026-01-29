@@ -35,6 +35,7 @@ export interface UsePipelineReturn {
   // Results
   result: PipelineResult | null
   finalUsdzBlob: Blob | null
+  finalGlbBlob: Blob | null
   previewImages: {
     initial?: string
     refined?: string
@@ -71,6 +72,7 @@ export function usePipeline(): UsePipelineReturn {
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<PipelineResult | null>(null)
   const [finalUsdzBlob, setFinalUsdzBlob] = useState<Blob | null>(null)
+  const [finalGlbBlob, setFinalGlbBlob] = useState<Blob | null>(null)
   const [previewImages, setPreviewImages] = useState<{
     initial?: string
     refined?: string  
@@ -100,6 +102,7 @@ export function usePipeline(): UsePipelineReturn {
     setError(null)
     setResult(null)
     setFinalUsdzBlob(null)
+    setFinalGlbBlob(null)
     setPreviewImages({})
     setRenderImages({})
     setOptimizationGif(undefined)
@@ -179,13 +182,21 @@ export function usePipeline(): UsePipelineReturn {
                 setIsDownloadingAssets(true)
                 setDownloadProgress(10)
                 
-                // Download final USDZ
+                // Download final USDZ and GLB
                 console.log('📦 Downloading USDZ from:', pipelineResult.run_dir)
-                setDownloadProgress(30)
+                setDownloadProgress(25)
                 const usdzBlob = await apiClient.downloadUSDZ(pipelineResult.run_dir)
                 console.log('✅ USDZ downloaded successfully, size:', usdzBlob.size, 'bytes')
-                setDownloadProgress(60)
+                setDownloadProgress(40)
                 setFinalUsdzBlob(usdzBlob)
+                
+                // Download GLB for better web viewing
+                console.log('📦 Downloading GLB from:', pipelineResult.run_dir)
+                setDownloadProgress(50)
+                const glbBlob = await apiClient.downloadGLB(pipelineResult.run_dir)
+                console.log('✅ GLB downloaded successfully, size:', glbBlob.size, 'bytes')
+                setDownloadProgress(65)
+                setFinalGlbBlob(glbBlob)
                 
                 // Download preview images
                 try {
@@ -292,6 +303,7 @@ export function usePipeline(): UsePipelineReturn {
         user_intent: userIntent,
         budget: budget,
         usdz_path: uploadResponse.data.usdz_path,
+        export_glb: true, // Enable GLB export for better web viewing
         run_rag_scope: false, // Use full catalog by default
         run_select_assets: true,
         run_initial_layout: true,
@@ -415,6 +427,7 @@ export function usePipeline(): UsePipelineReturn {
     error,
     result,
     finalUsdzBlob,
+    finalGlbBlob,
     previewImages,
     renderImages,
     optimizationGif,

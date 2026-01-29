@@ -7,6 +7,7 @@ export interface PipelineRequest {
   user_intent: string
   budget: number
   usdz_path: string
+  export_glb?: boolean
   run_rag_scope?: boolean
   run_select_assets?: boolean
   run_initial_layout?: boolean
@@ -335,6 +336,36 @@ export class ApiClient {
       }
       throw new ApiClientError(
         `Network error during download: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        0,
+        'NETWORK_ERROR'
+      )
+    }
+  }
+
+  /**
+   * Download final GLB file (better for web viewing)
+   * Uses Next.js API route to proxy the request and avoid CORS issues
+   */
+  async downloadGLB(runDir: string): Promise<Blob> {
+    try {
+      // Use Next.js API route to proxy the request (server-side, no CORS)
+      const response = await fetch(`/api/download/glb/${runDir}`)
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'GLB download failed' }))
+        throw new ApiClientError(
+          errorData.detail || `GLB download failed with status ${response.status}`,
+          response.status
+        )
+      }
+
+      return await response.blob()
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        throw error
+      }
+      throw new ApiClientError(
+        `Network error during GLB download: ${error instanceof Error ? error.message : 'Unknown error'}`,
         0,
         'NETWORK_ERROR'
       )

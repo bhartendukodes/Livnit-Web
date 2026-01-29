@@ -10,6 +10,7 @@ export async function GET(
     const { runDir } = params
     
     if (!runDir) {
+      console.error('❌ No runDir provided')
       return NextResponse.json(
         { detail: 'runDir parameter is required' },
         { status: 400 }
@@ -18,22 +19,29 @@ export async function GET(
 
     // Fetch from backend API
     const backendUrl = `${API_BASE_URL}/download/usdz/${runDir}`
-    console.log('📥 Proxying USDZ download:', backendUrl)
+    console.log('📥 API Route: Proxying USDZ download from:', backendUrl)
     
     const response = await fetch(backendUrl, {
       method: 'GET',
       headers: {
         'Accept': 'model/vnd.usdz+zip, application/octet-stream, */*',
+        'User-Agent': 'Livinit-Web/1.0',
       },
     })
 
+    console.log('📊 Backend response status:', response.status, response.statusText)
+    console.log('📊 Backend response headers:', Object.fromEntries(response.headers.entries()))
+
     if (!response.ok) {
+      console.error('❌ Backend responded with error:', response.status, response.statusText)
       const errorText = await response.text()
+      console.error('❌ Backend error body:', errorText)
+      
       let errorData
       try {
         errorData = JSON.parse(errorText)
       } catch {
-        errorData = { detail: errorText || `Download failed with status ${response.status}` }
+        errorData = { detail: errorText || `Backend download failed with status ${response.status}` }
       }
       
       return NextResponse.json(
@@ -44,22 +52,42 @@ export async function GET(
 
     // Get the blob from the response
     const blob = await response.blob()
+    console.log('✅ Successfully got blob from backend, size:', blob.size, 'bytes')
+    
+    // Verify blob has content
+    if (blob.size === 0) {
+      console.error('❌ Blob is empty')
+      return NextResponse.json(
+        { detail: 'Downloaded file is empty' },
+        { status: 500 }
+      )
+    }
     
     // Return the blob with proper headers
+    const headers = {
+      'Content-Type': response.headers.get('Content-Type') || 'model/vnd.usdz+zip',
+      'Content-Disposition': response.headers.get('Content-Disposition') || `attachment; filename="room_with_assets.usdz"`,
+      'Content-Length': blob.size.toString(),
+      'Cache-Control': 'public, max-age=3600',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    }
+    
+    console.log('✅ API Route: Returning blob with headers:', headers)
+    
     return new NextResponse(blob, {
       status: 200,
-      headers: {
-        'Content-Type': response.headers.get('Content-Type') || 'model/vnd.usdz+zip',
-        'Content-Disposition': response.headers.get('Content-Disposition') || `attachment; filename="room_with_assets.usdz"`,
-        'Content-Length': blob.size.toString(),
-        'Cache-Control': 'public, max-age=3600',
-      },
+      headers,
     })
   } catch (error) {
-    console.error('❌ Error proxying USDZ download:', error)
+    console.error('❌ API Route Error proxying USDZ download:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json(
       { 
-        detail: `Network error during download: ${error instanceof Error ? error.message : 'Unknown error'}` 
+        detail: `Network error during download: ${errorMessage}`,
+        error: errorMessage,
+        timestamp: new Date().toISOString(),
       },
       { status: 500 }
     )

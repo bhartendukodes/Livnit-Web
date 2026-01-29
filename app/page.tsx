@@ -25,6 +25,7 @@ export default function Home() {
     error: pipelineError,
     result: pipelineResult,
     finalUsdzBlob,
+    finalGlbBlob,
     previewImages,
     renderImages,
     optimizationGif,
@@ -39,11 +40,11 @@ export default function Home() {
 
   // Auto-switch to result screen when pipeline completes
   React.useEffect(() => {
-    if (pipelineStatus === 'completed' && finalUsdzBlob) {
-      console.log('🎯 Pipeline completed with USDZ blob - switching to result screen')
+    if (pipelineStatus === 'completed' && (finalUsdzBlob || finalGlbBlob)) {
+      console.log('🎯 Pipeline completed with 3D file - switching to result screen')
       setCurrentScreen('result')
     }
-  }, [pipelineStatus, finalUsdzBlob])
+  }, [pipelineStatus, finalUsdzBlob, finalGlbBlob])
 
   const handleReset = () => {
     console.log('Filters reset')
@@ -180,6 +181,7 @@ export default function Home() {
                   <div className="flex-1 min-h-0">
                     <RoomView 
                       finalUsdzBlob={finalUsdzBlob}
+                      finalGlbBlob={finalGlbBlob}
                       previewImages={previewImages}
                       renderImages={renderImages}
                       optimizationGif={optimizationGif}

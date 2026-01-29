@@ -11,11 +11,13 @@ import SimpleDirectUSDZ from './SimpleDirectUSDZ'
 import USDZProgressViewer from './USDZProgressViewer'
 import NormalUSDZViewer from './NormalUSDZViewer'
 import ThreeJSUSDZViewer from './ThreeJSUSDZViewer'
+import GLBViewer from './GLBViewer'
 
 interface RoomViewProps {
   roomImage?: string
   usdzFile?: File | null
   finalUsdzBlob?: Blob | null
+  finalGlbBlob?: Blob | null
   previewImages?: {
     initial?: string
     refined?: string
@@ -36,6 +38,7 @@ const RoomView: React.FC<RoomViewProps> = ({
   roomImage, 
   usdzFile, 
   finalUsdzBlob,
+  finalGlbBlob,
   previewImages,
   renderImages,
   optimizationGif,
@@ -45,6 +48,7 @@ const RoomView: React.FC<RoomViewProps> = ({
   downloadProgress
 }) => {
   console.log('🔍 RoomView render - finalUsdzBlob:', !!finalUsdzBlob)
+  console.log('🔍 RoomView render - finalGlbBlob:', !!finalGlbBlob)
   console.log('🔍 RoomView render - usdzFile:', !!usdzFile)
   console.log('🔍 RoomView render - pipelineResult:', !!pipelineResult)
   console.log('🔍 RoomView render - isDownloadingAssets:', isDownloadingAssets)
@@ -83,21 +87,23 @@ const RoomView: React.FC<RoomViewProps> = ({
       {/* Debug Info */}
       {process.env.NODE_ENV === 'development' && (
         <div className="absolute top-2 left-2 bg-black/80 text-white px-2 py-1 rounded text-xs z-50">
-          finalUSDZ: {finalUsdzBlob ? '✅' : '❌'} | usdzFile: {usdzFile ? '✅' : '❌'}
+          GLB: {finalGlbBlob ? '✅' : '❌'} | USDZ: {finalUsdzBlob ? '✅' : '❌'} | usdzFile: {usdzFile ? '✅' : '❌'}
         </div>
       )}
       
-      {/* USDZ Viewer */}
-      {(usdzFile || finalUsdzBlob) ? (
+      {/* 3D Model Viewer - Prefer GLB for web, fallback to USDZ */}
+      {(usdzFile || finalUsdzBlob || finalGlbBlob) ? (
         <div className="relative w-full h-full min-h-[600px] bg-neutral-900">
-          {/* Three.js USDZ Viewer - Proper USDZ preview using Three.js */}
-          {finalUsdzBlob ? (
+          {/* GLB Viewer - Best for web viewing */}
+          {finalGlbBlob ? (
+            <GLBViewer glbBlob={finalGlbBlob} />
+          ) : finalUsdzBlob ? (
             <ThreeJSUSDZViewer usdzBlob={finalUsdzBlob} />
           ) : usdzFile ? (
             <ThreeJSUSDZViewer usdzBlob={usdzFile} />
           ) : (
             <div className="flex items-center justify-center h-full text-gray-500">
-              <p>No USDZ file available for preview</p>
+              <p>No 3D file available for preview</p>
             </div>
           )}
           
