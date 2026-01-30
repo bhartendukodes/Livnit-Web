@@ -150,8 +150,8 @@ def _render(layout, assets, room_area, room_doors, room_windows, output_path):
     ax.grid(True, linestyle="--", alpha=0.3)
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    plt.tight_layout()
-    plt.savefig(output_path)
+    fig.tight_layout()
+    fig.savefig(output_path)
     plt.close(fig)
 
 

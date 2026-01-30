@@ -318,19 +318,72 @@ export class ApiClient {
    */
   async downloadUSDZ(runDir: string): Promise<Blob> {
     try {
+      console.log('📥 ApiClient: Starting USDZ download for runDir:', runDir)
+      
       // Use Next.js API route to proxy the request (server-side, no CORS)
-      const response = await fetch(`/api/download/usdz/${runDir}`)
+      const apiUrl = `/api/download/usdz/${runDir}`
+      console.log('📥 ApiClient: Fetching from API route:', apiUrl)
+      
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'model/vnd.usdz+zip, application/octet-stream, */*',
+        },
+      })
+
+      console.log('📊 ApiClient: Response status:', response.status, response.statusText)
+      console.log('📊 ApiClient: Response headers:', Object.fromEntries(response.headers.entries()))
+      console.log('📊 ApiClient: Response body readable:', !!response.body)
+      console.log('📊 ApiClient: Response content-type:', response.headers.get('content-type'))
 
       if (!response.ok) {
+        console.error('❌ ApiClient: API route responded with error:', response.status)
         const errorData = await response.json().catch(() => ({ detail: 'Download failed' }))
+        console.error('❌ ApiClient: Error data:', errorData)
         throw new ApiClientError(
           errorData.detail || `Download failed with status ${response.status}`,
           response.status
         )
       }
 
-      return await response.blob()
+      console.log('📦 ApiClient: About to read response as blob...')
+      
+      // Try to read the response step by step to debug
+      let blob: Blob
+      try {
+        blob = await response.blob()
+        console.log('✅ ApiClient: Successfully got blob, size:', blob.size, 'bytes, type:', blob.type)
+      } catch (blobError) {
+        console.error('❌ ApiClient: Failed to read response as blob:', blobError)
+        
+        // Try to read as text to see what we actually got
+        try {
+          const text = await response.text()
+          console.log('📄 ApiClient: Response as text (first 500 chars):', text.substring(0, 500))
+        } catch (textError) {
+          console.error('❌ ApiClient: Also failed to read as text:', textError)
+        }
+        
+        throw new ApiClientError(
+          `Failed to read response as blob: ${blobError instanceof Error ? blobError.message : 'Unknown error'}`,
+          0,
+          'BLOB_READ_ERROR'
+        )
+      }
+      
+      // Verify blob has content
+      if (blob.size === 0) {
+        console.error('❌ ApiClient: Blob is empty')
+        throw new ApiClientError(
+          'Downloaded file is empty',
+          0,
+          'EMPTY_FILE'
+        )
+      }
+      
+      return blob
     } catch (error) {
+      console.error('❌ ApiClient: Download error:', error)
       if (error instanceof ApiClientError) {
         throw error
       }
@@ -348,19 +401,48 @@ export class ApiClient {
    */
   async downloadGLB(runDir: string): Promise<Blob> {
     try {
+      console.log('📥 ApiClient: Starting GLB download for runDir:', runDir)
+      
       // Use Next.js API route to proxy the request (server-side, no CORS)
-      const response = await fetch(`/api/download/glb/${runDir}`)
+      const apiUrl = `/api/download/glb/${runDir}`
+      console.log('📥 ApiClient: Fetching GLB from API route:', apiUrl)
+      
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'model/gltf-binary, application/octet-stream, */*',
+        },
+      })
+
+      console.log('📊 ApiClient GLB: Response status:', response.status, response.statusText)
+      console.log('📊 ApiClient GLB: Response headers:', Object.fromEntries(response.headers.entries()))
 
       if (!response.ok) {
+        console.error('❌ ApiClient GLB: API route responded with error:', response.status)
         const errorData = await response.json().catch(() => ({ detail: 'GLB download failed' }))
+        console.error('❌ ApiClient GLB: Error data:', errorData)
         throw new ApiClientError(
           errorData.detail || `GLB download failed with status ${response.status}`,
           response.status
         )
       }
 
-      return await response.blob()
+      const blob = await response.blob()
+      console.log('✅ ApiClient GLB: Successfully got blob, size:', blob.size, 'bytes, type:', blob.type)
+      
+      // Verify blob has content
+      if (blob.size === 0) {
+        console.error('❌ ApiClient GLB: Blob is empty')
+        throw new ApiClientError(
+          'Downloaded GLB file is empty',
+          0,
+          'EMPTY_FILE'
+        )
+      }
+      
+      return blob
     } catch (error) {
+      console.error('❌ ApiClient GLB: Download error:', error)
       if (error instanceof ApiClientError) {
         throw error
       }

@@ -182,20 +182,12 @@ export function usePipeline(): UsePipelineReturn {
                 setIsDownloadingAssets(true)
                 setDownloadProgress(10)
                 
-                // Download final USDZ and GLB
-                console.log('📦 Downloading USDZ from:', pipelineResult.run_dir)
-                setDownloadProgress(25)
-                const usdzBlob = await apiClient.downloadUSDZ(pipelineResult.run_dir)
-                console.log('✅ USDZ downloaded successfully, size:', usdzBlob.size, 'bytes')
-                setDownloadProgress(40)
-                setFinalUsdzBlob(usdzBlob)
-                
-                // Download GLB for better web viewing
+                // Download GLB for web viewing (GLB is better for web than USDZ)
                 console.log('📦 Downloading GLB from:', pipelineResult.run_dir)
-                setDownloadProgress(50)
+                setDownloadProgress(30)
                 const glbBlob = await apiClient.downloadGLB(pipelineResult.run_dir)
                 console.log('✅ GLB downloaded successfully, size:', glbBlob.size, 'bytes')
-                setDownloadProgress(65)
+                setDownloadProgress(60)
                 setFinalGlbBlob(glbBlob)
                 
                 // Download preview images

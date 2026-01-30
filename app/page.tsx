@@ -247,6 +247,8 @@ export default function Home() {
           <div>Progress: {progress.nodesCompleted.length}/{progress.totalNodes || 0}</div>
         </div>
       )}
+
+      {/* Debug Panel (development only) */}
     </div>
   )
 }

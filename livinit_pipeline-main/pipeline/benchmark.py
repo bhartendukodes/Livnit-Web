@@ -1,52 +1,41 @@
 """
-Benchmark script for the furniture selection and layout pipeline.
+Benchmark script for testing asset selection and layout across different rooms.
 
-Runs 100 diverse test cases and collects metrics on:
-- Budget vs actual cost accuracy
-- Asset selection quality
-- Layout generation performance
-- LP optimization effectiveness
+Runs the full pipeline from extract_room to layoutvlm for all rooms in dataset/room.
+Uses Gemini to rank the 3 layout outputs: initial, refined, and optimized.
 """
 
 import argparse
 import asyncio
+import base64
 import json
 import logging
-import math
-import os
 import random
 import time
-import traceback
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
+from google.genai import types
 
 from dotenv import load_dotenv
-from langgraph.graph import END, StateGraph
 
-from core.asset_manager import AssetManager
-from core.pipeline_shared import STAGE_DIRS
-from main import PipelineState
-from nodes.initial_layout import generate_initial_layout_node
-from nodes.layout_preview import layout_preview_node
-from nodes.refine_layout import refine_layout_node
-from nodes.load_assets import load_assets_node
-from nodes.select_assets_llm import select_assets_llm_node
-from nodes.validate_and_cost import validate_and_cost_node
+from pipeline.core.asset_manager import AssetManager
+from pipeline.core.llm import client
+from pipeline.core.pipeline_shared import STAGE_DIRS
+from pipeline.nodes.extract_room import extract_room_node
+from pipeline.nodes.initial_layout import generate_initial_layout_node
+from pipeline.nodes.layout_preview import layout_preview_node
+from pipeline.nodes.refine_layout import refine_layout_node
+from pipeline.nodes.run_layoutvlm import run_layoutvlm_node
+from pipeline.nodes.select_assets_llm import select_assets_llm_node
+from pipeline.nodes.validate_and_cost import validate_and_cost_node
 
 load_dotenv()
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-
-# =============================================================================
-# Test Case Definitions
-# =============================================================================
 
 ROOM_STYLES = [
     "modern minimalist",
@@ -54,14 +43,9 @@ ROOM_STYLES = [
     "industrial",
     "scandinavian",
     "bohemian",
-    "traditional",
     "contemporary",
     "rustic farmhouse",
-    "art deco",
-    "coastal",
     "japandi",
-    "eclectic",
-    "transitional",
 ]
 
 ROOM_TYPES = [
@@ -71,10 +55,6 @@ ROOM_TYPES = [
     "studio apartment",
     "den",
     "guest room",
-    "reading nook",
-    "entertainment room",
-    "open concept living space",
-    "small apartment",
 ]
 
 SPECIFIC_REQUESTS = [
@@ -83,825 +63,736 @@ SPECIFIC_REQUESTS = [
     "for entertaining guests",
     "with warm lighting",
     "with natural materials",
-    "with storage solutions",
     "for relaxation",
-    "with accent pieces",
-    "for a cozy atmosphere",
     "with clean lines",
-    "for small space living",
-    "with bold colors",
-    "with neutral tones",
-    "for a young professional",
-    "for a family",
-]
-
-COLOR_PREFERENCES = [
-    "walnut tones",
-    "white and grey",
-    "earth tones",
-    "black and white",
-    "warm wood finishes",
-    "cool blue accents",
-    "green and natural",
-    "muted pastels",
-    "bold jewel tones",
-    "",  # no color preference
+    "for a cozy atmosphere",
 ]
 
 
-def generate_test_cases(n: int = 100, seed: int = 42) -> list[dict[str, Any]]:
-    """Generate n diverse test cases for benchmarking."""
+def generate_prompts(n: int, seed: int = 42) -> list[str]:
+    """Generate n diverse design prompts."""
     random.seed(seed)
-    test_cases = []
-
-    # Room size distributions (width, depth in meters)
-    room_sizes = [
-        # Small rooms
-        {"min_w": 2.5, "max_w": 3.5, "min_d": 3.0, "max_d": 4.0, "label": "small"},
-        # Medium rooms
-        {"min_w": 3.5, "max_w": 5.0, "min_d": 4.0, "max_d": 6.0, "label": "medium"},
-        # Large rooms
-        {"min_w": 5.0, "max_w": 7.0, "min_d": 6.0, "max_d": 8.0, "label": "large"},
-    ]
-
-    # Budget distributions (100 to 100000)
-    budget_ranges = [
-        {"min": 100, "max": 500, "label": "budget"},
-        {"min": 500, "max": 2000, "label": "low"},
-        {"min": 2000, "max": 8000, "label": "medium"},
-        {"min": 8000, "max": 30000, "label": "high"},
-        {"min": 30000, "max": 100000, "label": "premium"},
-    ]
-
-    for i in range(n):
-        # Select room style and type
+    prompts = []
+    for _ in range(n):
         style = random.choice(ROOM_STYLES)
         room_type = random.choice(ROOM_TYPES)
         specific = random.choice(SPECIFIC_REQUESTS)
-        color = random.choice(COLOR_PREFERENCES)
-
-        # Build user intent
-        if color:
-            intent = f"{style} {room_type} {specific} with {color}"
-        else:
-            intent = f"{style} {room_type} {specific}"
-
-        # Select room size
-        size_cat = random.choice(room_sizes)
-        width = round(random.uniform(size_cat["min_w"], size_cat["max_w"]), 2)
-        depth = round(random.uniform(size_cat["min_d"], size_cat["max_d"]), 2)
-
-        # Select budget (correlated with room size somewhat)
-        if size_cat["label"] == "small":
-            budget_cat = random.choice(budget_ranges[:3])  # lower budgets for small rooms
-        elif size_cat["label"] == "large":
-            budget_cat = random.choice(budget_ranges[2:])  # higher budgets for large rooms
-        else:
-            budget_cat = random.choice(budget_ranges)
-
-        budget = round(random.uniform(budget_cat["min"], budget_cat["max"]), 2)
-
-        test_cases.append({
-            "id": i + 1,
-            "user_intent": intent,
-            "budget": budget,
-            "room_width": width,
-            "room_depth": depth,
-            "room_size_category": size_cat["label"],
-            "budget_category": budget_cat["label"],
-        })
-
-    return test_cases
+        prompts.append(f"{style} {room_type} {specific}")
+    return prompts
 
 
-# =============================================================================
-# Metrics Collection
-# =============================================================================
+def get_room_files(room_dir: Path, pattern: str = "*.usdz") -> list[Path]:
+    """Get USDZ room files matching pattern from directory."""
+    return sorted(room_dir.glob(pattern))
+
+
+# Load full asset catalog once at module level
+DATASET_PATH = Path(__file__).parent.parent / "dataset" / "processed.json"
+RENDER_DIR = Path(__file__).parent.parent / "dataset" / "render"
+_FULL_CATALOG: list[dict] | None = None
+
+
+def get_full_catalog() -> tuple[list[dict], str]:
+    """Load full asset catalog and build CSV for LLM selection."""
+    global _FULL_CATALOG
+    if _FULL_CATALOG is None:
+        with open(DATASET_PATH) as f:
+            _FULL_CATALOG = json.load(f)
+        for a in _FULL_CATALOG:
+            a["score"] = 0.0
+            a["image_path"] = str(RENDER_DIR / f"{a['uid']}.png")
+
+    csv_lines = ["uid,category,price,width,depth,height,materials,color,style,shape,asset_description,description"]
+    for a in _FULL_CATALOG:
+        csv_lines.append(
+            f'{a["uid"]},{a["category"]},{a["price"]},{a["width"]},{a["depth"]},{a["height"]},'
+            f'"{a["materials"]}",{a.get("asset_color","")},{a.get("asset_style","")},{a.get("asset_shape","")},'
+            f'"{a.get("asset_description","")}","{a["description"][:100]}"'
+        )
+    return _FULL_CATALOG.copy(), "\n".join(csv_lines)
+
 
 @dataclass
 class RunMetrics:
     """Metrics for a single benchmark run."""
-    test_id: int
+    room_file: str
     user_intent: str
     budget: float
-    room_width: float
-    room_depth: float
-    room_area: float = 0.0
 
-    # Timing
+    room_width: float = 0.0
+    room_depth: float = 0.0
+    room_area: float = 0.0
+    num_doors: int = 0
+    num_windows: int = 0
+    num_voids: int = 0
+
     total_time_s: float = 0.0
-    load_assets_time_s: float = 0.0
+    extract_room_time_s: float = 0.0
     select_assets_time_s: float = 0.0
     validate_cost_time_s: float = 0.0
     initial_layout_time_s: float = 0.0
     refine_layout_time_s: float = 0.0
+    layoutvlm_time_s: float = 0.0
+    ranking_time_s: float = 0.0
 
-    # Asset selection
-    num_candidates: int = 0
+    num_catalog: int = 0
     num_selected: int = 0
     categories_selected: list[str] = field(default_factory=list)
 
-    # Cost metrics
     actual_cost: float = 0.0
-    budget_diff: float = 0.0
     budget_diff_pct: float = 0.0
     within_budget: bool = False
-    within_10pct: bool = False
 
-    # LP optimization
-    lp_success: bool = False
-    lp_objective: float = 0.0
-
-    # Preference score metrics
-    total_preference_score: float = 0.0
-    mean_preference_score: float = 0.0
-    min_preference_score: float = 0.0
-    max_preference_score: float = 0.0
-    preference_scores: list[float] = field(default_factory=list)
-
-    # Layout metrics
     layout_generated: bool = False
     all_assets_placed: bool = False
     assets_in_bounds: int = 0
     assets_out_of_bounds: int = 0
 
-    # Errors
+    # Layout ranking by Gemini
+    ranking: list[str] = field(default_factory=list)  # ["optimized", "refined", "initial"] best to worst
+    ranking_reasoning: str = ""
+
     error: str = ""
     success: bool = False
 
 
-def calculate_layout_metrics(
+def check_layout_bounds(
     layout: dict[str, Any],
     selected_assets: list[dict[str, Any]],
-    room_area: tuple[float, float],
+    room_width: float,
+    room_depth: float,
 ) -> dict[str, Any]:
-    """Calculate metrics about the generated layout."""
-    width, depth = room_area
+    """Check how many assets are within room bounds."""
     assets_by_uid = {a["uid"]: a for a in selected_assets}
-
-    in_bounds = 0
-    out_of_bounds = 0
+    in_bounds = out_of_bounds = 0
     placed_uids = set()
 
     for uid, placement in layout.items():
         placed_uids.add(uid)
         pos = placement.get("position", [0, 0, 0])
-        if len(pos) >= 2:
-            x, y = pos[0], pos[1]
-            asset = assets_by_uid.get(uid, {})
-            asset_w = asset.get("width", 0.5) / 2
-            asset_d = asset.get("depth", 0.5) / 2
+        x, y = pos[0], pos[1]
+        asset = assets_by_uid.get(uid, {})
+        hw, hd = asset.get("width", 0.5) / 2, asset.get("depth", 0.5) / 2
 
-            # Check if asset center + half dimensions is within room
-            if 0 <= x <= width and 0 <= y <= depth:
-                in_bounds += 1
-            else:
-                out_of_bounds += 1
-
-    all_placed = set(assets_by_uid.keys()) == placed_uids
+        # Asset center should be within room, with some tolerance for edges
+        if -hw <= x <= room_width + hw and -hd <= y <= room_depth + hd:
+            in_bounds += 1
+        else:
+            out_of_bounds += 1
 
     return {
         "in_bounds": in_bounds,
         "out_of_bounds": out_of_bounds,
-        "all_placed": all_placed,
+        "all_placed": set(assets_by_uid.keys()) == placed_uids,
     }
 
 
-# =============================================================================
-# Pipeline Builder
-# =============================================================================
+def rank_layouts_with_gemini(
+    initial_preview: str,
+    refined_preview: str,
+    optimized_preview: str,
+    user_intent: str,
+    room_dims: tuple[float, float],
+) -> tuple[list[str], str]:
+    """Use Gemini to rank the 3 layout images from best to worst."""
+    images = []
+    for path, label in [(initial_preview, "initial"), (refined_preview, "refined"), (optimized_preview, "optimized")]:
+        if path and Path(path).exists():
+            with open(path, "rb") as f:
+                images.append({"label": label, "data": base64.b64encode(f.read()).decode("utf-8")})
 
-def build_benchmark_graph() -> StateGraph:
-    """Build pipeline graph that runs up to refine_layout."""
-    graph = StateGraph(PipelineState)
+    if len(images) < 2:
+        return [], "Not enough layout images to compare"
 
-    graph.add_node("load_assets", load_assets_node)
-    graph.add_node("select_assets", select_assets_llm_node)
-    graph.add_node("validate_and_cost", validate_and_cost_node)
-    graph.add_node("generate_initial_layout", generate_initial_layout_node)
-    graph.add_node("layout_preview", layout_preview_node)
-    graph.add_node("refine_layout", refine_layout_node)
+    prompt = f"""You are an expert interior designer evaluating furniture layouts.
 
-    graph.set_entry_point("load_assets")
-    graph.add_edge("load_assets", "select_assets")
-    graph.add_edge("select_assets", "validate_and_cost")
-    graph.add_edge("validate_and_cost", "generate_initial_layout")
-    graph.add_edge("generate_initial_layout", "layout_preview")
-    graph.add_edge("layout_preview", "refine_layout")
-    graph.add_edge("refine_layout", END)
+DESIGN INTENT: {user_intent}
+ROOM SIZE: {room_dims[0]:.1f}m x {room_dims[1]:.1f}m
 
-    return graph.compile()
+You are given {len(images)} layout preview images labeled: {', '.join(img['label'] for img in images)}
 
+Evaluate each layout based on:
+1. Furniture placement and flow - traffic paths, accessibility
+2. Functional zones - logical groupings, conversation areas
+3. Balance and proportion - visual weight distribution
+4. Adherence to design intent - matches the requested style
+5. Boundary respect - assets within room bounds, not blocking doors
 
-# =============================================================================
-# Benchmark Runner
-# =============================================================================
+OUTPUT (JSON only):
+{{
+  "ranking": ["best_label", "second_label", "worst_label"],
+  "reasoning": "Brief explanation of ranking (2-3 sentences)"
+}}
+"""
 
-def run_single_benchmark(
-    test_case: dict[str, Any],
-    graph,
-    output_base: Path,
-) -> RunMetrics:
-    """Run a single benchmark test case and collect metrics."""
-    metrics = RunMetrics(
-        test_id=test_case["id"],
-        user_intent=test_case["user_intent"],
-        budget=test_case["budget"],
-        room_width=test_case["room_width"],
-        room_depth=test_case["room_depth"],
-        room_area=test_case["room_width"] * test_case["room_depth"],
+    contents = [{"text": prompt}]
+    for img in images:
+        contents.append({"text": f"\n[{img['label'].upper()} LAYOUT]:"})
+        contents.append({"inline_data": {"mime_type": "image/png", "data": img["data"]}})
+
+    response = client.models.generate_content(
+        model="gemini-3-flash-preview",
+        contents=contents,
+        config=types.GenerateContentConfig(
+    response_mime_type="application/json",
+    temperature=1,
+    thinking_config=types.ThinkingConfig(thinking_level="low"),
+)
+,
     )
 
-    run_dir = output_base / f"test_{test_case['id']:03d}"
+    try:
+        result = json.loads(response.text)
+        return result.get("ranking", []), result.get("reasoning", "")
+    except json.JSONDecodeError:
+        return [], response.text[:200]
+
+
+def run_single_benchmark(
+    room_file: Path,
+    user_intent: str,
+    budget: float,
+    output_base: Path,
+    run_id: int,
+) -> RunMetrics:
+    """Run full pipeline for a single room/prompt combination."""
+    metrics = RunMetrics(
+        room_file=room_file.name,
+        user_intent=user_intent,
+        budget=budget,
+    )
+
+    run_dir = output_base / f"run_{run_id:03d}"
     manager = AssetManager(run_dir, max_runs=None)
 
-    initial_state = {
+    state = {
         "run_dir": str(run_dir),
         "asset_manager": manager,
-        "user_intent": test_case["user_intent"],
-        "budget": test_case["budget"],
-        "room_area": (test_case["room_width"], test_case["room_depth"]),
-        "assets_csv": "",
-        "assets_data": [],
+        "user_intent": user_intent,
+        "usdz_path": str(room_file),
+        "budget": budget,
         "selected_assets": [],
         "selected_uids": [],
         "total_cost": 0.0,
-        "task_description": "",
-        "constraint_program": "",
-        "layout_groups": [],
+        "room_area": (0, 0),
+        "room_vertices": [],
+        "room_doors": [],
+        "room_windows": [],
+        "room_voids": [],
         "initial_layout": {},
         "refined_layout": {},
         "layoutvlm_layout": {},
         "layout_preview_path": "",
+        "layout_preview_refine_path": "",
+        "layout_preview_post_path": "",
     }
 
     start_time = time.perf_counter()
 
     try:
-        logger.debug("Invoking graph with state keys: %s", list(initial_state.keys()))
-        final_state = graph.invoke(initial_state)
-        logger.debug("Graph completed, final state keys: %s", list(final_state.keys()))
-        metrics.total_time_s = time.perf_counter() - start_time
+        # Extract room geometry
+        t0 = time.perf_counter()
+        state.update(extract_room_node(state))
+        metrics.extract_room_time_s = time.perf_counter() - t0
 
-        # Extract metrics from final state
-        selected_assets = final_state.get("selected_assets", [])
-        metrics.num_selected = len(selected_assets)
-        metrics.categories_selected = list(set(a.get("category", "unknown") for a in selected_assets))
+        room_w, room_d = state["room_area"]
+        metrics.room_width = room_w
+        metrics.room_depth = room_d
+        metrics.room_area = room_w * room_d
+        metrics.num_doors = len(state.get("room_doors", []))
+        metrics.num_windows = len(state.get("room_windows", []))
+        metrics.num_voids = len(state.get("room_voids", []))
 
-        # Cost metrics
-        metrics.actual_cost = final_state.get("total_cost", 0.0)
-        metrics.budget_diff = metrics.actual_cost - metrics.budget
-        if metrics.budget > 0:
-            metrics.budget_diff_pct = (metrics.budget_diff / metrics.budget) * 100
-        metrics.within_budget = metrics.actual_cost <= metrics.budget
-        metrics.within_10pct = abs(metrics.budget_diff_pct) <= 10
+        # Load full asset catalog (skip RAG scoping)
+        assets_data, assets_csv = get_full_catalog()
+        state["assets_data"] = assets_data
+        state["assets_csv"] = assets_csv
+        metrics.num_catalog = len(assets_data)
 
-        # Try to read LP optimization results
-        lp_file = run_dir / STAGE_DIRS["select_assets"] / "lp_optimization.json"
-        if lp_file.exists():
-            with open(lp_file) as f:
-                lp_data = json.load(f)
-                metrics.lp_success = lp_data.get("status") == "success"
-                metrics.lp_objective = lp_data.get("objective_value", 0.0)
+        # Select assets
+        t0 = time.perf_counter()
+        state.update(select_assets_llm_node(state))
+        metrics.select_assets_time_s = time.perf_counter() - t0
 
-        # Try to read candidates count and preference scores
-        candidates_file = run_dir / STAGE_DIRS["select_assets"] / "candidates.json"
-        if candidates_file.exists():
-            with open(candidates_file) as f:
-                cand_data = json.load(f)
-                candidates = cand_data.get("candidates", [])
-                metrics.num_candidates = len(candidates)
+        # Validate and cost
+        t0 = time.perf_counter()
+        state.update(validate_and_cost_node(state))
+        metrics.validate_cost_time_s = time.perf_counter() - t0
 
-                # Get preference scores for selected assets
-                selected_uids = set(final_state.get("selected_uids", []))
-                selected_scores = [
-                    c.get("preference_score", 0)
-                    for c in candidates
-                    if c.get("uid") in selected_uids
-                ]
-                if selected_scores:
-                    metrics.preference_scores = selected_scores
-                    metrics.total_preference_score = sum(selected_scores)
-                    metrics.mean_preference_score = sum(selected_scores) / len(selected_scores)
-                    metrics.min_preference_score = min(selected_scores)
-                    metrics.max_preference_score = max(selected_scores)
+        selected = state.get("selected_assets", [])
+        metrics.num_selected = len(selected)
+        metrics.categories_selected = list(set(a.get("category", "?") for a in selected))
+        metrics.actual_cost = state.get("total_cost", 0.0)
+        if budget > 0:
+            metrics.budget_diff_pct = ((metrics.actual_cost - budget) / budget) * 100
+        metrics.within_budget = metrics.actual_cost <= budget
 
-        # Layout metrics (prefer refined_layout over initial_layout)
-        layout = final_state.get("refined_layout") or final_state.get("initial_layout", {})
-        if layout:
+        # Initial layout
+        t0 = time.perf_counter()
+        state.update(generate_initial_layout_node(state))
+        metrics.initial_layout_time_s = time.perf_counter() - t0
+        state.update(layout_preview_node(state, "layout_preview_path", "layout_preview.png", "initial_layout"))
+
+        initial_layout = state.get("initial_layout", {})
+        if initial_layout:
             metrics.layout_generated = True
-            layout_metrics = calculate_layout_metrics(
-                layout,
-                selected_assets,
-                (test_case["room_width"], test_case["room_depth"]),
-            )
-            metrics.all_assets_placed = layout_metrics["all_placed"]
-            metrics.assets_in_bounds = layout_metrics["in_bounds"]
-            metrics.assets_out_of_bounds = layout_metrics["out_of_bounds"]
+            bounds = check_layout_bounds(initial_layout, selected, room_w, room_d)
+            metrics.all_assets_placed = bounds["all_placed"]
+            metrics.assets_in_bounds = bounds["in_bounds"]
+            metrics.assets_out_of_bounds = bounds["out_of_bounds"]
 
+        # Refine layout
+        t0 = time.perf_counter()
+        state.update(refine_layout_node(state))
+        metrics.refine_layout_time_s = time.perf_counter() - t0
+        state.update(layout_preview_node(state, "layout_preview_refine_path", "layout_preview_refine.png", "refined_layout"))
+
+        # LayoutVLM optimization
+        t0 = time.perf_counter()
+        state.update(run_layoutvlm_node(state))
+        metrics.layoutvlm_time_s = time.perf_counter() - t0
+        state.update(layout_preview_node(state, "layout_preview_post_path", "layout_preview_post.png", "layoutvlm_layout"))
+
+        # Rank layouts with Gemini
+        t0 = time.perf_counter()
+        ranking, reasoning = rank_layouts_with_gemini(
+            state.get("layout_preview_path", ""),
+            state.get("layout_preview_refine_path", ""),
+            state.get("layout_preview_post_path", ""),
+            user_intent,
+            (room_w, room_d),
+        )
+        metrics.ranking_time_s = time.perf_counter() - t0
+        metrics.ranking = ranking
+        metrics.ranking_reasoning = reasoning
+
+        metrics.total_time_s = time.perf_counter() - start_time
         metrics.success = True
 
-        # Save metrics to run directory
         manager.write_json(STAGE_DIRS["meta"], "benchmark_metrics.json", asdict(metrics))
 
     except Exception as e:
+        import traceback
         metrics.total_time_s = time.perf_counter() - start_time
         metrics.error = str(e)
         metrics.success = False
-        logger.error("Test %d failed: %s\n%s", test_case["id"], e, traceback.format_exc())
+        logger.error("Run %d failed: %s\n%s", run_id, e, traceback.format_exc())
 
     return metrics
 
 
-def run_benchmark(
-    test_cases: list[dict[str, Any]],
-    output_dir: Path,
-    max_tests: int | None = None,
-) -> list[RunMetrics]:
-    """Run the full benchmark suite sequentially."""
-    graph = build_benchmark_graph()
-    results = []
-
-    if max_tests:
-        test_cases = test_cases[:max_tests]
-
-    total = len(test_cases)
-    logger.info("Starting benchmark with %d test cases (sequential)", total)
-
-    for i, test_case in enumerate(test_cases):
-        logger.info(
-            "[%d/%d] Running test %d: %s (budget=$%.2f, room=%.1fx%.1f)",
-            i + 1,
-            total,
-            test_case["id"],
-            test_case["user_intent"][:50] + "...",
-            test_case["budget"],
-            test_case["room_width"],
-            test_case["room_depth"],
-        )
-
-        metrics = run_single_benchmark(test_case, graph, output_dir)
-        results.append(metrics)
-
-        if metrics.success:
-            logger.info(
-                "  -> Success: cost=$%.2f (budget=$%.2f, diff=%.1f%%), %d assets selected",
-                metrics.actual_cost,
-                metrics.budget,
-                metrics.budget_diff_pct,
-                metrics.num_selected,
-            )
-        else:
-            logger.warning("  -> Failed: %s", metrics.error[:100])
-
-    return results
+RUN_TIMEOUT_S = 600  # Increased for full pipeline
 
 
-# =============================================================================
-# Async Parallel Benchmark Runner
-# =============================================================================
-
-async def run_single_benchmark_async(
-    test_case: dict[str, Any],
-    graph,
+async def run_single_async(
+    room_file: Path,
+    user_intent: str,
+    budget: float,
     output_base: Path,
+    run_id: int,
     semaphore: asyncio.Semaphore,
     executor: ThreadPoolExecutor,
-    progress: dict[str, int],
 ) -> RunMetrics:
-    """Run a single benchmark test case asynchronously."""
+    """Run single pipeline asynchronously."""
     async with semaphore:
+        logger.info("[start] run_%03d %s: %s...", run_id, room_file.stem[:15], user_intent[:30])
         loop = asyncio.get_event_loop()
-
-        # Log start
-        progress["started"] += 1
-        logger.info(
-            "[%d/%d started, %d done] Test %d: %s (budget=$%.2f)",
-            progress["started"],
-            progress["total"],
-            progress["done"],
-            test_case["id"],
-            test_case["user_intent"][:40] + "...",
-            test_case["budget"],
-        )
-
-        # Run the synchronous benchmark in a thread pool
-        metrics = await loop.run_in_executor(
-            executor,
-            run_single_benchmark,
-            test_case,
-            graph,
-            output_base,
-        )
-
-        # Log completion
-        progress["done"] += 1
-        if metrics.success:
-            logger.info(
-                "[%d/%d done] Test %d: SUCCESS cost=$%.2f (diff=%.1f%%)",
-                progress["done"],
-                progress["total"],
-                test_case["id"],
-                metrics.actual_cost,
-                metrics.budget_diff_pct,
+        try:
+            metrics = await asyncio.wait_for(
+                loop.run_in_executor(
+                    executor, run_single_benchmark, room_file, user_intent, budget, output_base, run_id
+                ),
+                timeout=RUN_TIMEOUT_S,
             )
-        else:
-            logger.warning(
-                "[%d/%d done] Test %d: FAILED - %s",
-                progress["done"],
-                progress["total"],
-                test_case["id"],
-                metrics.error[:60],
-            )
-
+        except asyncio.TimeoutError:
+            logger.warning("[timeout] run_%03d exceeded %ds", run_id, RUN_TIMEOUT_S)
+            return RunMetrics(room_file=room_file.name, user_intent=user_intent, budget=budget, error=f"Timeout after {RUN_TIMEOUT_S}s", success=False)
+        status = "OK" if metrics.success else f"FAIL: {metrics.error[:40]}"
+        logger.info("[done] run_%03d %s: %s | ranking=%s", run_id, room_file.stem[:15], status, metrics.ranking)
         return metrics
 
 
 async def run_benchmark_async(
-    test_cases: list[dict[str, Any]],
+    room_files: list[Path],
+    prompts: list[str],
+    budgets: list[float],
     output_dir: Path,
-    max_tests: int | None = None,
-    concurrency: int = 5,
+    concurrency: int = 3,
 ) -> list[RunMetrics]:
-    """Run the full benchmark suite with parallel execution."""
-    graph = build_benchmark_graph()
-
-    if max_tests:
-        test_cases = test_cases[:max_tests]
+    """Run pipelines concurrently using asyncio."""
+    test_cases = [
+        (room, prompt, budget, rid)
+        for rid, (room, prompt, budget) in enumerate(
+            (r, p, b) for r in room_files for p in prompts for b in budgets
+        )
+    ]
 
     total = len(test_cases)
     logger.info(
-        "Starting benchmark with %d test cases (parallel, concurrency=%d)",
-        total,
-        concurrency,
+        "Starting benchmark: %d rooms x %d prompts x %d budgets = %d pipeline runs (concurrency=%d)",
+        len(room_files), len(prompts), len(budgets), total, concurrency,
     )
 
-    # Semaphore to limit concurrency
     semaphore = asyncio.Semaphore(concurrency)
-
-    # Thread pool for running sync code
     executor = ThreadPoolExecutor(max_workers=concurrency)
 
-    # Progress tracking
-    progress = {"total": total, "started": 0, "done": 0}
-
-    # Create tasks for all test cases
+    start = time.perf_counter()
     tasks = [
-        run_single_benchmark_async(tc, graph, output_dir, semaphore, executor, progress)
-        for tc in test_cases
+        run_single_async(room, prompt, budget, output_dir, rid, semaphore, executor)
+        for room, prompt, budget, rid in test_cases
     ]
-
-    # Run all tasks concurrently
-    start_time = time.perf_counter()
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    elapsed = time.perf_counter() - start_time
-
-    # Handle any exceptions that were returned
-    final_results = []
-    for i, result in enumerate(results):
-        if isinstance(result, Exception):
-            logger.error("Test %d raised exception: %s", test_cases[i]["id"], result)
-            metrics = RunMetrics(
-                test_id=test_cases[i]["id"],
-                user_intent=test_cases[i]["user_intent"],
-                budget=test_cases[i]["budget"],
-                room_width=test_cases[i]["room_width"],
-                room_depth=test_cases[i]["room_depth"],
-                error=str(result),
-                success=False,
-            )
-            final_results.append(metrics)
-        else:
-            final_results.append(result)
+    elapsed = time.perf_counter() - start
 
     executor.shutdown(wait=False)
 
-    logger.info(
-        "Benchmark completed: %d tests in %.1fs (%.1fs avg, %.1fx speedup vs sequential)",
-        total,
-        elapsed,
-        elapsed / total if total > 0 else 0,
-        (sum(r.total_time_s for r in final_results) / elapsed) if elapsed > 0 else 1,
-    )
+    final = []
+    for i, r in enumerate(results):
+        if isinstance(r, Exception):
+            room, prompt, budget, _ = test_cases[i]
+            final.append(RunMetrics(room_file=room.name, user_intent=prompt, budget=budget, error=str(r), success=False))
+        else:
+            final.append(r)
 
-    return final_results
+    logger.info("Benchmark done: %d pipelines in %.1fs (%.1fs avg)", total, elapsed, elapsed / total if total else 0)
+    return final
 
 
-# =============================================================================
-# Report Generation
-# =============================================================================
+def generate_report(results: list[RunMetrics]) -> dict[str, Any]:
+    """Generate summary report."""
+    ok = [r for r in results if r.success]
+    fail = [r for r in results if not r.success]
 
-def generate_report(results: list[RunMetrics], output_dir: Path) -> dict[str, Any]:
-    """Generate aggregate benchmark report."""
-    successful = [r for r in results if r.success]
-    failed = [r for r in results if not r.success]
+    if not ok:
+        return {"error": "No successful runs", "failed": len(fail)}
 
-    if not successful:
-        return {
-            "summary": {
-                "total_tests": len(results),
-                "successful": 0,
-                "failed": len(failed),
-                "success_rate_pct": 0,
-            },
-            "error": "No successful runs",
-            "failed_tests": [
-                {"id": r.test_id, "error": r.error[:200]} for r in failed
-            ],
-        }
+    budget_diffs = [r.budget_diff_pct for r in ok]
+    times = [r.total_time_s for r in ok]
+    in_bounds = [r.assets_in_bounds for r in ok if r.layout_generated]
+    out_bounds = [r.assets_out_of_bounds for r in ok if r.layout_generated]
 
-    # Budget accuracy metrics
-    budget_diffs = [r.budget_diff_pct for r in successful]
-    abs_budget_diffs = [abs(d) for d in budget_diffs]
-    within_budget_count = sum(1 for r in successful if r.within_budget)
-    within_10pct_count = sum(1 for r in successful if r.within_10pct)
+    # Analyze ranking results
+    ranking_counts = {"initial": 0, "refined": 0, "optimized": 0}
+    refined_beats_initial = 0
+    optimized_beats_refined = 0
+    for r in ok:
+        if r.ranking:
+            best = r.ranking[0]
+            if best in ranking_counts:
+                ranking_counts[best] += 1
+            # Pairwise comparisons based on position in ranking (lower index = better)
+            try:
+                if "refined" in r.ranking and "initial" in r.ranking:
+                    if r.ranking.index("refined") < r.ranking.index("initial"):
+                        refined_beats_initial += 1
+                if "optimized" in r.ranking and "refined" in r.ranking:
+                    if r.ranking.index("optimized") < r.ranking.index("refined"):
+                        optimized_beats_refined += 1
+            except ValueError:
+                pass
 
-    # Asset selection metrics
-    num_selected = [r.num_selected for r in successful]
-    num_candidates = [r.num_candidates for r in successful if r.num_candidates > 0]
-
-    # LP metrics
-    lp_success_count = sum(1 for r in successful if r.lp_success)
-    lp_objectives = [r.lp_objective for r in successful if r.lp_objective > 0]
-
-    # Preference score metrics
-    total_pref_scores = [r.total_preference_score for r in successful if r.total_preference_score > 0]
-    mean_pref_scores = [r.mean_preference_score for r in successful if r.mean_preference_score > 0]
-    all_pref_scores = [score for r in successful for score in r.preference_scores]
-
-    # Layout metrics
-    layout_generated_count = sum(1 for r in successful if r.layout_generated)
-    all_placed_count = sum(1 for r in successful if r.all_assets_placed)
-
-    # Timing metrics
-    total_times = [r.total_time_s for r in successful]
-
-    report = {
+    return {
         "summary": {
-            "total_tests": len(results),
-            "successful": len(successful),
-            "failed": len(failed),
-            "success_rate_pct": (len(successful) / len(results)) * 100 if results else 0,
+            "total": len(results),
+            "success": len(ok),
+            "failed": len(fail),
+            "success_rate_pct": len(ok) / len(results) * 100,
         },
-        "budget_accuracy": {
-            "within_budget_count": within_budget_count,
-            "within_budget_pct": (within_budget_count / len(successful)) * 100,
-            "within_10pct_count": within_10pct_count,
-            "within_10pct_pct": (within_10pct_count / len(successful)) * 100,
+        "rooms": {
+            "unique_rooms": len(set(r.room_file for r in ok)),
+            "mean_area_m2": sum(r.room_area for r in ok) / len(ok),
+        },
+        "budget": {
+            "within_budget_pct": sum(1 for r in ok if r.within_budget) / len(ok) * 100,
             "mean_diff_pct": sum(budget_diffs) / len(budget_diffs),
-            "mean_abs_diff_pct": sum(abs_budget_diffs) / len(abs_budget_diffs),
-            "median_abs_diff_pct": sorted(abs_budget_diffs)[len(abs_budget_diffs) // 2],
-            "max_over_budget_pct": max(budget_diffs),
-            "max_under_budget_pct": min(budget_diffs),
+            "max_over_pct": max(budget_diffs),
+            "max_under_pct": min(budget_diffs),
         },
-        "asset_selection": {
-            "mean_candidates": sum(num_candidates) / len(num_candidates) if num_candidates else 0,
-            "mean_selected": sum(num_selected) / len(num_selected),
-            "min_selected": min(num_selected),
-            "max_selected": max(num_selected),
+        "assets": {
+            "mean_selected": sum(r.num_selected for r in ok) / len(ok),
+            "min_selected": min(r.num_selected for r in ok),
+            "max_selected": max(r.num_selected for r in ok),
         },
-        "lp_optimization": {
-            "success_count": lp_success_count,
-            "success_rate_pct": (lp_success_count / len(successful)) * 100,
-            "mean_objective": sum(lp_objectives) / len(lp_objectives) if lp_objectives else 0,
+        "layout": {
+            "generated_pct": sum(1 for r in ok if r.layout_generated) / len(ok) * 100,
+            "all_placed_pct": sum(1 for r in ok if r.all_assets_placed) / len(ok) * 100,
+            "mean_in_bounds": sum(in_bounds) / len(in_bounds) if in_bounds else 0,
+            "mean_out_of_bounds": sum(out_bounds) / len(out_bounds) if out_bounds else 0,
         },
-        "preference_scores": {
-            "mean_total_score": sum(total_pref_scores) / len(total_pref_scores) if total_pref_scores else 0,
-            "mean_per_asset_score": sum(mean_pref_scores) / len(mean_pref_scores) if mean_pref_scores else 0,
-            "overall_mean_score": sum(all_pref_scores) / len(all_pref_scores) if all_pref_scores else 0,
-            "min_score": min(all_pref_scores) if all_pref_scores else 0,
-            "max_score": max(all_pref_scores) if all_pref_scores else 0,
-            "score_distribution": {
-                "1-3 (low)": sum(1 for s in all_pref_scores if 1 <= s <= 3),
-                "4-6 (medium)": sum(1 for s in all_pref_scores if 4 <= s <= 6),
-                "7-10 (high)": sum(1 for s in all_pref_scores if 7 <= s <= 10),
-            } if all_pref_scores else {},
-        },
-        "layout_generation": {
-            "layout_generated_count": layout_generated_count,
-            "layout_generated_pct": (layout_generated_count / len(successful)) * 100,
-            "all_assets_placed_count": all_placed_count,
-            "all_assets_placed_pct": (all_placed_count / len(successful)) * 100 if successful else 0,
+        "ranking": {
+            "initial_wins": ranking_counts["initial"],
+            "refined_wins": ranking_counts["refined"],
+            "optimized_wins": ranking_counts["optimized"],
+            "optimized_win_rate_pct": ranking_counts["optimized"] / len(ok) * 100 if ok else 0,
+            "refined_beats_initial": refined_beats_initial,
+            "refined_beats_initial_pct": refined_beats_initial / len(ok) * 100 if ok else 0,
+            "optimized_beats_refined": optimized_beats_refined,
+            "optimized_beats_refined_pct": optimized_beats_refined / len(ok) * 100 if ok else 0,
         },
         "timing": {
-            "mean_total_time_s": sum(total_times) / len(total_times),
-            "min_total_time_s": min(total_times),
-            "max_total_time_s": max(total_times),
-            "total_benchmark_time_s": sum(total_times),
+            "mean_s": sum(times) / len(times),
+            "min_s": min(times),
+            "max_s": max(times),
+            "total_s": sum(times),
+            "mean_initial_layout_s": sum(r.initial_layout_time_s for r in ok) / len(ok),
+            "mean_refine_s": sum(r.refine_layout_time_s for r in ok) / len(ok),
+            "mean_layoutvlm_s": sum(r.layoutvlm_time_s for r in ok) / len(ok),
         },
-        "by_budget_category": {},
-        "by_room_size": {},
-        "failed_tests": [
-            {"id": r.test_id, "error": r.error[:200]} for r in failed
-        ],
+        "by_room": {
+            room: {
+                "count": len([r for r in ok if r.room_file == room]),
+                "mean_area": sum(r.room_area for r in ok if r.room_file == room) / max(1, len([r for r in ok if r.room_file == room])),
+                "success_rate": len([r for r in ok if r.room_file == room]) / max(1, len([r for r in results if r.room_file == room])) * 100,
+            }
+            for room in set(r.room_file for r in results)
+        },
     }
-
-    # Breakdown by budget category
-    budget_categories = set()
-    for tc in test_cases_global:
-        budget_categories.add(tc.get("budget_category", "unknown"))
-
-    for cat in budget_categories:
-        cat_results = [
-            r for r, tc in zip(results, test_cases_global)
-            if tc.get("budget_category") == cat and r.success
-        ]
-        if cat_results:
-            cat_diffs = [r.budget_diff_pct for r in cat_results]
-            report["by_budget_category"][cat] = {
-                "count": len(cat_results),
-                "mean_diff_pct": sum(cat_diffs) / len(cat_diffs),
-                "within_10pct_pct": sum(1 for r in cat_results if r.within_10pct) / len(cat_results) * 100,
-            }
-
-    # Breakdown by room size
-    room_sizes = set()
-    for tc in test_cases_global:
-        room_sizes.add(tc.get("room_size_category", "unknown"))
-
-    for size in room_sizes:
-        size_results = [
-            r for r, tc in zip(results, test_cases_global)
-            if tc.get("room_size_category") == size and r.success
-        ]
-        if size_results:
-            size_selected = [r.num_selected for r in size_results]
-            report["by_room_size"][size] = {
-                "count": len(size_results),
-                "mean_selected": sum(size_selected) / len(size_selected),
-            }
-
-    return report
 
 
 def print_report(report: dict[str, Any]) -> None:
-    """Print a formatted benchmark report."""
-    print("\n" + "=" * 70)
-    print("BENCHMARK REPORT")
-    print("=" * 70)
+    """Print formatted report."""
+    print("\n" + "=" * 60)
+    print("ROOM BENCHMARK REPORT")
+    print("=" * 60)
 
-    s = report.get("summary", {})
-    print(f"\nSUMMARY")
-    print(f"  Total tests:    {s.get('total_tests', 0)}")
-    print(f"  Successful:     {s.get('successful', 0)}")
-    print(f"  Failed:         {s.get('failed', 0)}")
-    print(f"  Success rate:   {s.get('success_rate_pct', 0):.1f}%")
-
-    if report.get("error"):
+    if "error" in report:
         print(f"\nERROR: {report['error']}")
+        return
 
-    if b := report.get("budget_accuracy"):
-        print(f"\nBUDGET ACCURACY")
-        print(f"  Within budget:      {b['within_budget_count']} ({b['within_budget_pct']:.1f}%)")
-        print(f"  Within ±10%:        {b['within_10pct_count']} ({b['within_10pct_pct']:.1f}%)")
-        print(f"  Mean diff:          {b['mean_diff_pct']:+.1f}%")
-        print(f"  Mean |diff|:        {b['mean_abs_diff_pct']:.1f}%")
-        print(f"  Median |diff|:      {b['median_abs_diff_pct']:.1f}%")
-        print(f"  Max over budget:    {b['max_over_budget_pct']:+.1f}%")
-        print(f"  Max under budget:   {b['max_under_budget_pct']:+.1f}%")
+    s = report["summary"]
+    print(f"\nSUMMARY: {s['success']}/{s['total']} runs ({s['success_rate_pct']:.0f}% success)")
 
-    if a := report.get("asset_selection"):
-        print(f"\nASSET SELECTION")
-        print(f"  Mean candidates:    {a['mean_candidates']:.1f}")
-        print(f"  Mean selected:      {a['mean_selected']:.1f}")
-        print(f"  Range selected:     {a['min_selected']} - {a['max_selected']}")
+    r = report["rooms"]
+    print(f"\nROOMS: {r['unique_rooms']} unique, mean area {r['mean_area_m2']:.1f}m²")
 
-    if lp := report.get("lp_optimization"):
-        print(f"\nLP OPTIMIZATION")
-        print(f"  Success rate:       {lp['success_rate_pct']:.1f}%")
-        print(f"  Mean objective:     {lp.get('mean_objective', 0):.2f}")
+    b = report["budget"]
+    print(f"\nBUDGET: {b['within_budget_pct']:.0f}% within budget, mean diff {b['mean_diff_pct']:+.1f}%")
 
-    if ps := report.get("preference_scores"):
-        print(f"\nPREFERENCE SCORES")
-        print(f"  Mean total/run:     {ps['mean_total_score']:.2f}")
-        print(f"  Mean per asset:     {ps['mean_per_asset_score']:.2f}")
-        print(f"  Overall mean:       {ps['overall_mean_score']:.2f}")
-        print(f"  Range:              {ps['min_score']:.0f} - {ps['max_score']:.0f}")
-        if dist := ps.get("score_distribution"):
-            print(f"  Distribution:")
-            print(f"    Low (1-3):        {dist.get('1-3 (low)', 0)}")
-            print(f"    Medium (4-6):     {dist.get('4-6 (medium)', 0)}")
-            print(f"    High (7-10):      {dist.get('7-10 (high)', 0)}")
+    a = report["assets"]
+    print(f"\nASSETS: mean {a['mean_selected']:.1f} selected (range {a['min_selected']}-{a['max_selected']})")
 
-    if ly := report.get("layout_generation"):
-        print(f"\nLAYOUT GENERATION")
-        print(f"  Generated:          {ly['layout_generated_count']} ({ly['layout_generated_pct']:.1f}%)")
-        print(f"  All assets placed:  {ly['all_assets_placed_count']} ({ly['all_assets_placed_pct']:.1f}%)")
+    ly = report["layout"]
+    print(f"\nLAYOUT: {ly['generated_pct']:.0f}% generated, {ly['all_placed_pct']:.0f}% all placed")
+    print(f"  In bounds: {ly['mean_in_bounds']:.1f}, Out: {ly['mean_out_of_bounds']:.1f}")
 
-    if t := report.get("timing"):
-        print(f"\nTIMING")
-        print(f"  Mean time/test:     {t['mean_total_time_s']:.2f}s")
-        print(f"  Min time:           {t['min_total_time_s']:.2f}s")
-        print(f"  Max time:           {t['max_total_time_s']:.2f}s")
-        print(f"  Total time:         {t['total_benchmark_time_s']:.1f}s ({t['total_benchmark_time_s']/60:.1f}min)")
+    rk = report["ranking"]
+    print(f"\nRANKING (Gemini):")
+    print(f"  Initial wins: {rk['initial_wins']}")
+    print(f"  Refined wins: {rk['refined_wins']}")
+    print(f"  Optimized wins: {rk['optimized_wins']} ({rk['optimized_win_rate_pct']:.0f}%)")
+    print(f"  Refined > Initial: {rk['refined_beats_initial']} ({rk['refined_beats_initial_pct']:.0f}%)")
+    print(f"  Optimized > Refined: {rk['optimized_beats_refined']} ({rk['optimized_beats_refined_pct']:.0f}%)")
 
-    if report.get("by_budget_category"):
-        print(f"\nBY BUDGET CATEGORY")
-        for cat, data in sorted(report["by_budget_category"].items()):
-            print(f"  {cat:12}: n={data['count']:2}, mean_diff={data['mean_diff_pct']:+.1f}%, within_10%={data['within_10pct_pct']:.0f}%")
+    t = report["timing"]
+    print(f"\nTIMING: mean {t['mean_s']:.1f}s, total {t['total_s']:.0f}s ({t['total_s']/60:.1f}min)")
+    print(f"  Initial layout: {t['mean_initial_layout_s']:.1f}s")
+    print(f"  Refine layout: {t['mean_refine_s']:.1f}s")
+    print(f"  LayoutVLM: {t['mean_layoutvlm_s']:.1f}s")
 
-    if report.get("by_room_size"):
-        print(f"\nBY ROOM SIZE")
-        for size, data in sorted(report["by_room_size"].items()):
-            print(f"  {size:8}: n={data['count']:2}, mean_selected={data['mean_selected']:.1f}")
+    print("\nBY ROOM:")
+    for room, data in report.get("by_room", {}).items():
+        print(f"  {room[:30]:30} n={data['count']:2} area={data['mean_area']:.1f}m² ok={data['success_rate']:.0f}%")
 
-    if report.get("failed_tests"):
-        print(f"\nFAILED TESTS")
-        for f in report["failed_tests"][:10]:
-            print(f"  Test {f['id']}: {f['error'][:80]}...")
-        if len(report["failed_tests"]) > 10:
-            print(f"  ... and {len(report['failed_tests']) - 10} more")
-
-    print("\n" + "=" * 70)
+    print("=" * 60)
 
 
-# Global for report generation (set during benchmark run)
-test_cases_global: list[dict[str, Any]] = []
+def generate_markdown_report(output_dir: Path, results: list[RunMetrics], config: dict, report: dict) -> Path:
+    """Generate markdown report with layout previews."""
+    folder_name = output_dir.name
+    date_str = f"{folder_name[:4]}-{folder_name[4:6]}-{folder_name[6:8]} {folder_name[9:11]}:{folder_name[11:13]}:{folder_name[13:15]}"
 
+    md = ["# Room Benchmark Report", f"\n**Date:** {date_str}\n"]
 
-# =============================================================================
-# Main
-# =============================================================================
+    # Handle error case
+    if "error" in report:
+        md.append(f"## Error\n\n{report['error']}\n\nFailed runs: {report.get('failed', 0)}")
+        reports_dir = output_dir.parent.parent / "reports"
+        reports_dir.mkdir(exist_ok=True)
+        output_file = reports_dir / f"benchmark_{output_dir.name}.md"
+        output_file.write_text("\n".join(md))
+        return output_file
+
+    # Summary
+    s = report["summary"]
+    md.append("## Summary\n")
+    md.append("| Metric | Value |")
+    md.append("|--------|-------|")
+    md.append(f"| Total Runs | {s['total']} |")
+    md.append(f"| Successful | {s['success']} |")
+    md.append(f"| Failed | {s['failed']} |")
+    md.append(f"| Success Rate | {s['success_rate_pct']:.1f}% |")
+
+    # Inputs
+    md.append("\n## Inputs\n")
+    md.append("### Rooms")
+    for r in config["rooms"]:
+        md.append(f"- `{Path(r).name}`")
+    md.append("\n### Design Prompts")
+    for i, p in enumerate(config["prompts"], 1):
+        md.append(f"{i}. {p}")
+    md.append("\n### Budgets")
+    md.append(", ".join(f"${int(b):,}" for b in config["budgets"]))
+
+    # Stats
+    md.append("\n## Performance Stats\n")
+    t = report["timing"]
+    md.append("| Timing | Value |")
+    md.append("|--------|-------|")
+    md.append(f"| Mean | {t['mean_s']:.1f}s |")
+    md.append(f"| Min | {t['min_s']:.1f}s |")
+    md.append(f"| Max | {t['max_s']:.1f}s |")
+    md.append(f"| Total | {t['total_s']/60:.1f} min |")
+    md.append(f"| Initial Layout | {t['mean_initial_layout_s']:.1f}s avg |")
+    md.append(f"| Refine Layout | {t['mean_refine_s']:.1f}s avg |")
+    md.append(f"| LayoutVLM | {t['mean_layoutvlm_s']:.1f}s avg |")
+
+    b = report["budget"]
+    md.append("\n| Budget | Value |")
+    md.append("|--------|-------|")
+    md.append(f"| Within Budget | {b['within_budget_pct']:.1f}% |")
+    md.append(f"| Mean Diff | {b['mean_diff_pct']:+.1f}% |")
+
+    ly = report["layout"]
+    md.append("\n| Layout | Value |")
+    md.append("|--------|-------|")
+    md.append(f"| Generated | {ly['generated_pct']:.0f}% |")
+    md.append(f"| All Placed | {ly['all_placed_pct']:.0f}% |")
+    md.append(f"| In Bounds | {ly['mean_in_bounds']:.1f} avg |")
+
+    # Ranking stats
+    rk = report["ranking"]
+    md.append("\n| Gemini Ranking | Wins |")
+    md.append("|----------------|------|")
+    md.append(f"| Initial | {rk['initial_wins']} |")
+    md.append(f"| Refined | {rk['refined_wins']} |")
+    md.append(f"| Optimized | {rk['optimized_wins']} ({rk['optimized_win_rate_pct']:.0f}%) |")
+    md.append(f"| Refined > Initial | {rk['refined_beats_initial']} ({rk['refined_beats_initial_pct']:.0f}%) |")
+    md.append(f"| Optimized > Refined | {rk['optimized_beats_refined']} ({rk['optimized_beats_refined_pct']:.0f}%) |")
+
+    # Room vs asset footprint stats
+    footprint_ratios = []
+    for i, r in enumerate(results):
+        llm_file = output_dir / f"run_{i:03d}" / STAGE_DIRS["select_assets"] / "llm_selection.json"
+        if llm_file.exists():
+            llm = json.loads(llm_file.read_text())
+            footprint = llm.get("total_footprint_sqm", 0)
+            r_dict = asdict(r)
+            if footprint > 0 and r_dict["room_area"] > 0:
+                footprint_ratios.append(footprint / r_dict["room_area"] * 100)
+
+    md.append("\n| Footprint Coverage | Value |")
+    md.append("|-------------------|-------|")
+    if footprint_ratios:
+        md.append(f"| Mean | {sum(footprint_ratios)/len(footprint_ratios):.1f}% |")
+        md.append(f"| Min | {min(footprint_ratios):.1f}% |")
+        md.append(f"| Max | {max(footprint_ratios):.1f}% |")
+
+    # Individual Runs
+    md.append("\n---\n## Individual Runs\n")
+
+    preview_stage = STAGE_DIRS["draw_layout_preview"]
+    select_stage = STAGE_DIRS["select_assets"]
+    # Relative path from reports/ to output_dir (e.g., ../benchmark_room_outputs/20260129_095451)
+    rel_base = f"../{output_dir.parent.name}/{output_dir.name}"
+
+    for i, r in enumerate(results):
+        r_dict = asdict(r)
+        run_dir = output_dir / f"run_{i:03d}"
+        llm_file = run_dir / select_stage / "llm_selection.json"
+        preview_initial = run_dir / preview_stage / "layout_preview.png"
+        preview_refine = run_dir / preview_stage / "layout_preview_refine.png"
+        preview_post = run_dir / preview_stage / "layout_preview_post.png"
+
+        status = "✓" if r_dict["success"] else "✗"
+        budget_status = "✓" if r_dict["within_budget"] else "over"
+
+        md.append(f"### Run {i:03d} {status}\n")
+
+        # Config info
+        cfg = []
+        cfg.append(f"**Room:** `{r_dict['room_file']}` ({r_dict['room_width']:.1f}m × {r_dict['room_depth']:.1f}m = {r_dict['room_area']:.1f}m²)<br>")
+        cfg.append(f"**Prompt:** {r_dict['user_intent']}<br>")
+        cfg.append(f"**Budget:** ${r_dict['budget']:,.0f} → ${r_dict['actual_cost']:,.0f} ({r_dict['budget_diff_pct']:+.1f}%, {budget_status})<br>")
+        cfg.append(f"**Time:** {r_dict['total_time_s']:.1f}s | **Assets:** {r_dict['num_selected']} / {r_dict['num_catalog']}<br>")
+        if r_dict["ranking"]:
+            cfg.append(f"**Ranking:** {' > '.join(r_dict['ranking'])}<br>")
+            cfg.append(f"**Reasoning:** {r_dict['ranking_reasoning']}<br>")
+        if r_dict["error"]:
+            cfg.append(f"<br>**Error:** {r_dict['error']}")
+        if llm_file.exists():
+            llm = json.loads(llm_file.read_text())
+            footprint = llm.get("total_footprint_sqm", 0)
+            coverage = footprint / r_dict["room_area"] * 100 if r_dict["room_area"] > 0 else 0
+            cfg.append(f"<br>**Footprint:** {footprint:.1f}m² / {r_dict['room_area']:.1f}m² ({coverage:.0f}%)")
+
+        # Build image columns for all 3 layouts
+        img_cols = []
+        for preview, label in [(preview_initial, "Initial"), (preview_refine, "Refined"), (preview_post, "Optimized")]:
+            if preview.exists():
+                rel_path = f"{rel_base}/run_{i:03d}/{preview_stage}/{preview.name}"
+                img_cols.append(f'<td width="25%" valign="top"><b>{label}</b><br><img src="{rel_path}" width="100%"></td>')
+            else:
+                img_cols.append(f'<td width="25%" valign="top"><b>{label}</b><br>N/A</td>')
+
+        md.append('<table width="100%"><tr><td width="25%" valign="top">')
+        md.append("".join(cfg))
+        md.append("</td>")
+        md.append("".join(img_cols))
+        md.append("</tr></table>\n")
+        md.append("---\n")
+
+    # Write report
+    reports_dir = output_dir.parent.parent / "reports"
+    reports_dir.mkdir(exist_ok=True)
+    output_file = reports_dir / f"benchmark_{output_dir.name}.md"
+    output_file.write_text("\n".join(md))
+    return output_file
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run pipeline benchmark")
-    parser.add_argument(
-        "--num-tests",
-        type=int,
-        default=100,
-        help="Number of test cases to run (default: 100)",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="Random seed for test case generation (default: 42)",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default="benchmark_outputs",
-        help="Output directory for benchmark results",
-    )
-    parser.add_argument(
-        "--generate-only",
-        action="store_true",
-        help="Only generate test cases, don't run benchmark",
-    )
-    parser.add_argument(
-        "--concurrency",
-        type=int,
-        default=5,
-        help="Number of parallel tests to run (default: 5, use 1 for sequential)",
-    )
-    parser.add_argument(
-        "--sequential",
-        action="store_true",
-        help="Run tests sequentially instead of in parallel",
-    )
+    parser = argparse.ArgumentParser(description="Benchmark asset selection across rooms")
+    parser.add_argument("--room-dir", type=str, default="dataset/room", help="Room USDZ directory")
+    parser.add_argument("--room-pattern", type=str, default="*.usdz", help="Glob pattern for room files (e.g. 'Project-*.usdz')")
+    parser.add_argument("--num-prompts", type=int, default=3, help="Prompts per room")
+    parser.add_argument("--budgets", type=str, default="3000,5000,10000", help="Comma-separated budgets")
+    parser.add_argument("--output-dir", type=str, default="benchmark_room_outputs", help="Output directory")
+    parser.add_argument("--concurrency", type=int, default=3, help="Parallel runs")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
     args = parser.parse_args()
 
-    # Generate test cases
-    test_cases = generate_test_cases(n=args.num_tests, seed=args.seed)
-    test_cases_global = test_cases
+    room_files = get_room_files(Path(args.room_dir), args.room_pattern)
+    if not room_files:
+        print(f"No USDZ files matching '{args.room_pattern}' in {args.room_dir}")
+        exit(1)
+
+    prompts = generate_prompts(args.num_prompts, args.seed)
+    budgets = [float(b) for b in args.budgets.split(",")]
 
     output_dir = Path(args.output_dir) / time.strftime("%Y%m%d_%H%M%S")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save test cases
-    with open(output_dir / "test_cases.json", "w") as f:
-        json.dump(test_cases, f, indent=2)
+    # Save config
+    config = {"rooms": [str(r) for r in room_files], "prompts": prompts, "budgets": budgets}
+    with open(output_dir / "config.json", "w") as f:
+        json.dump(config, f, indent=2)
 
-    if args.generate_only:
-        print(f"Generated {len(test_cases)} test cases to {output_dir / 'test_cases.json'}")
-        for tc in test_cases[:5]:
-            print(f"  {tc['id']}: {tc['user_intent'][:60]}... (${tc['budget']}, {tc['room_width']}x{tc['room_depth']}m)")
-        print(f"  ... and {len(test_cases) - 5} more")
-    else:
-        # Run benchmark
-        if args.sequential or args.concurrency == 1:
-            results = run_benchmark(test_cases, output_dir, max_tests=args.num_tests)
-        else:
-            results = asyncio.run(
-                run_benchmark_async(
-                    test_cases,
-                    output_dir,
-                    max_tests=args.num_tests,
-                    concurrency=args.concurrency,
-                )
-            )
+    logger.info("Rooms: %s", [r.name for r in room_files])
+    logger.info("Prompts: %s", prompts)
+    logger.info("Budgets: %s", budgets)
 
-        # Save raw results
-        results_data = [asdict(r) for r in results]
-        with open(output_dir / "results.json", "w") as f:
-            json.dump(results_data, f, indent=2)
+    results = asyncio.run(run_benchmark_async(room_files, prompts, budgets, output_dir, args.concurrency))
 
-        # Generate and save report
-        report = generate_report(results, output_dir)
-        with open(output_dir / "report.json", "w") as f:
-            json.dump(report, f, indent=2)
+    # Save results
+    with open(output_dir / "results.json", "w") as f:
+        json.dump([asdict(r) for r in results], f, indent=2)
 
-        # Print report
-        print_report(report)
+    report = generate_report(results)
+    with open(output_dir / "report.json", "w") as f:
+        json.dump(report, f, indent=2)
 
-        logger.info("Benchmark complete. Results saved to %s", output_dir)
+    print_report(report)
+
+    # Generate markdown report
+    md_report_path = generate_markdown_report(output_dir, results, config, report)
+    logger.info("Results saved to %s", output_dir)
+    logger.info("Markdown report: %s", md_report_path)

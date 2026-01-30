@@ -1,12 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Livinit Pipeline</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
     <style>
         :root {
             --bg-primary: #0a0a0b;
@@ -27,7 +30,11 @@
             --sidebar-width: 320px;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
         body {
             font-family: var(--sans);
@@ -149,13 +156,22 @@
             transition: border-color 0.2s;
         }
 
-        input:focus, select:focus, textarea:focus {
+        input:focus,
+        select:focus,
+        textarea:focus {
             outline: none;
             border-color: var(--accent);
         }
 
-        input::placeholder, textarea::placeholder { color: var(--text-muted); }
-        textarea { min-height: 80px; resize: vertical; }
+        input::placeholder,
+        textarea::placeholder {
+            color: var(--text-muted);
+        }
+
+        textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
 
         select {
             cursor: pointer;
@@ -188,7 +204,9 @@
             transition: background 0.2s;
         }
 
-        .toggle.active { background: var(--accent); }
+        .toggle.active {
+            background: var(--accent);
+        }
 
         .toggle::after {
             content: '';
@@ -202,7 +220,9 @@
             transition: transform 0.2s;
         }
 
-        .toggle.active::after { transform: translateX(16px); }
+        .toggle.active::after {
+            transform: translateX(16px);
+        }
 
         .btn {
             display: flex;
@@ -225,8 +245,14 @@
             color: var(--bg-primary);
         }
 
-        .btn-primary:hover { background: var(--accent-dim); }
-        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary:hover {
+            background: var(--accent-dim);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
 
         .btn-secondary {
             background: var(--bg-tertiary);
@@ -234,7 +260,9 @@
             border: 1px solid var(--border);
         }
 
-        .btn-secondary:hover { background: var(--bg-elevated); }
+        .btn-secondary:hover {
+            background: var(--bg-elevated);
+        }
 
         .spinner {
             width: 14px;
@@ -245,7 +273,11 @@
             animation: spin 0.8s linear infinite;
         }
 
-        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
 
         .nodes-grid {
             display: flex;
@@ -484,9 +516,19 @@
             word-break: break-word;
         }
 
-        .json-output::-webkit-scrollbar { width: 6px; }
-        .json-output::-webkit-scrollbar-track { background: var(--bg-tertiary); border-radius: 3px; }
-        .json-output::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        .json-output::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .json-output::-webkit-scrollbar-track {
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+        }
+
+        .json-output::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
 
         .error-message {
             background: rgba(239, 68, 68, 0.1);
@@ -594,8 +636,15 @@
         }
 
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
         }
 
         .node-info {
@@ -680,12 +729,33 @@
             transition: opacity 0.2s, background 0.2s;
         }
 
-        .node-result:hover .copy-btn { opacity: 1; }
-        .copy-btn:hover { background: var(--bg-tertiary); border-color: var(--accent); }
-        .copy-btn svg { width: 14px; height: 14px; stroke: var(--text-secondary); }
-        .copy-btn:hover svg { stroke: var(--accent); }
-        .copy-btn.copied { background: var(--accent); border-color: var(--accent); }
-        .copy-btn.copied svg { stroke: var(--bg-primary); }
+        .node-result:hover .copy-btn {
+            opacity: 1;
+        }
+
+        .copy-btn:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--accent);
+        }
+
+        .copy-btn svg {
+            width: 14px;
+            height: 14px;
+            stroke: var(--text-secondary);
+        }
+
+        .copy-btn:hover svg {
+            stroke: var(--accent);
+        }
+
+        .copy-btn.copied {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .copy-btn.copied svg {
+            stroke: var(--bg-primary);
+        }
 
         .node-result.has-image {
             max-height: none;
@@ -695,9 +765,18 @@
             border: none;
         }
 
-        .node-result::-webkit-scrollbar { width: 4px; }
-        .node-result::-webkit-scrollbar-track { background: transparent; }
-        .node-result::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+        .node-result::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .node-result::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .node-result::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
 
         .node-preview-image {
             width: 100%;
@@ -727,13 +806,106 @@
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
-        .fade-in { animation: fadeIn 0.3s ease-out; }
+        .fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        /* Review Panel */
+        .review-card {
+            background: var(--bg-secondary);
+            border: 2px solid var(--accent);
+            border-radius: 12px;
+            overflow: hidden;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .review-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+            background: var(--accent-glow);
+        }
+
+        .review-title {
+            display: block;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 4px;
+        }
+
+        .review-subtitle {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .review-preview {
+            padding: 24px;
+            background: var(--bg-tertiary);
+        }
+
+        .review-preview img {
+            width: 100%;
+            max-width: 600px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .review-assets {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+        }
+
+        .review-assets-header {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+        }
+
+        .review-asset-tag {
+            display: inline-block;
+            font-family: var(--mono);
+            font-size: 11px;
+            padding: 4px 10px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            margin: 0 6px 6px 0;
+        }
+
+        .review-input {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+        }
+
+        .review-actions {
+            display: flex;
+            gap: 12px;
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+            background: var(--bg-tertiary);
+        }
+
+        .review-actions .btn {
+            flex: 1;
+        }
     </style>
 </head>
+
 <body>
     <div class="layout">
         <!-- Sidebar -->
@@ -756,7 +928,7 @@
                     </div>
                     <div class="form-group">
                         <label>Budget ($)</label>
-                        <input type="number" id="budget" value="2000" min="0" step="100">
+                        <input type="number" id="budget" value="5000" min="0" step="100">
                     </div>
                     <div class="form-group">
                         <label>USDZ Path</label>
@@ -765,37 +937,50 @@
                     <div class="form-group">
                         <div class="toggle-row">
                             <span>Run RAG Scope</span>
-                            <div class="toggle" id="runRagScopeToggle" onclick="toggleOption('runRagScopeToggle')"></div>
+                            <div class="toggle" id="runRagScopeToggle" onclick="toggleOption('runRagScopeToggle')">
+                            </div>
                         </div>
                     </div>
                     <div class="form-group">
                         <div class="toggle-row">
                             <span>Run Select Assets</span>
-                            <div class="toggle active" id="runSelectAssetsToggle" onclick="toggleOption('runSelectAssetsToggle')"></div>
+                            <div class="toggle active" id="runSelectAssetsToggle"
+                                onclick="toggleOption('runSelectAssetsToggle')"></div>
                         </div>
                     </div>
                     <div class="form-group">
                         <div class="toggle-row">
                             <span>Run Initial Layout</span>
-                            <div class="toggle active" id="runInitialLayoutToggle" onclick="toggleOption('runInitialLayoutToggle')"></div>
+                            <div class="toggle active" id="runInitialLayoutToggle"
+                                onclick="toggleOption('runInitialLayoutToggle')"></div>
                         </div>
                     </div>
                     <div class="form-group">
                         <div class="toggle-row">
                             <span>Run Refine Layout</span>
-                            <div class="toggle active" id="runRefineLayoutToggle" onclick="toggleOption('runRefineLayoutToggle')"></div>
+                            <div class="toggle active" id="runRefineLayoutToggle"
+                                onclick="toggleOption('runRefineLayoutToggle')"></div>
                         </div>
                     </div>
                     <div class="form-group">
                         <div class="toggle-row">
                             <span>Run LayoutVLM</span>
-                            <div class="toggle active" id="runLayoutVLMToggle" onclick="toggleOption('runLayoutVLMToggle')"></div>
+                            <div class="toggle active" id="runLayoutVLMToggle"
+                                onclick="toggleOption('runLayoutVLMToggle')"></div>
                         </div>
                     </div>
                     <div class="form-group">
                         <div class="toggle-row">
                             <span>Run Render Scene</span>
-                            <div class="toggle active" id="runRenderSceneToggle" onclick="toggleOption('runRenderSceneToggle')"></div>
+                            <div class="toggle active" id="runRenderSceneToggle"
+                                onclick="toggleOption('runRenderSceneToggle')"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <div class="toggle-row">
+                            <span>Pause for Review</span>
+                            <div class="toggle" id="pauseForReviewToggle"
+                                onclick="toggleOption('pauseForReviewToggle')"></div>
                         </div>
                     </div>
                     <button class="btn btn-primary" id="runPipelineBtn" onclick="runPipeline()">
@@ -858,15 +1043,46 @@
                     </div>
                     <div class="progress-nodes" id="progressNodes"></div>
 
+                    <!-- Review Panel (shown when paused for review) -->
+                    <div id="reviewPanel" style="display: none; margin-top: 24px;">
+                        <div class="review-card">
+                            <div class="review-header">
+                                <span class="review-title">Review Layout</span>
+                                <span class="review-subtitle">Review the initial layout and optionally revise the asset
+                                    selection</span>
+                            </div>
+                            <div class="review-preview">
+                                <img id="reviewPreviewImage" src="" alt="Layout Preview">
+                            </div>
+                            <div class="review-assets">
+                                <div class="review-assets-header">Selected Assets</div>
+                                <div id="reviewAssetsList"></div>
+                            </div>
+                            <div class="review-input">
+                                <label>Revision (optional)</label>
+                                <input type="text" id="revisionPrompt"
+                                    placeholder="e.g., change the sofa to a green one, remove the chair">
+                            </div>
+                            <div class="review-actions">
+                                <button class="btn btn-secondary" onclick="resumePipeline(false)">
+                                    <span>Continue</span>
+                                </button>
+                                <button class="btn btn-primary" onclick="resumePipeline(true)">
+                                    <span>Revise & Continue</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Inline Results (shown after pipeline completes) -->
                     <div id="pipelineResults" style="display: none; margin-top: 24px;">
                         <!-- Download Section -->
                         <div class="download-section" id="pipelineDownloadSection" style="display: none;">
                             <a class="btn-download" id="pipelineDownloadBtn" href="#" download>
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                    <polyline points="7 10 12 15 17 10"/>
-                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                    <polyline points="7 10 12 15 17 10" />
+                                    <line x1="12" y1="15" x2="12" y2="3" />
                                 </svg>
                                 Download USDZ
                             </a>
@@ -928,9 +1144,9 @@
                     <div class="download-section" id="downloadSection" style="display: none;">
                         <a class="btn-download" id="downloadUsdzBtn" href="#" download>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                <polyline points="7 10 12 15 17 10"/>
-                                <line x1="12" y1="15" x2="12" y2="3"/>
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="7 10 12 15 17 10" />
+                                <line x1="12" y1="15" x2="12" y2="3" />
                             </svg>
                             Download USDZ
                         </a>
@@ -1144,6 +1360,8 @@
 
         let pipelineNodes = [];
         let nodeElapsedTimes = {};
+        let currentRunDir = null;
+        let nodeIndexOffset = 0;
 
         function showProgress(nodes) {
             document.getElementById('emptyState').style.display = 'none';
@@ -1160,6 +1378,7 @@
             document.getElementById('pipelinePreviewPostCard').style.display = 'none';
             document.getElementById('pipelineGifSection').style.display = 'none';
 
+            nodeIndexOffset = 0;
             const container = document.getElementById('progressNodes');
             container.innerHTML = nodes.map((name, idx) => `
                 <div class="progress-node pending" id="node-${idx}">
@@ -1175,6 +1394,39 @@
                 </div>
                 <div class="node-result" id="node-result-${idx}" style="display: none;"></div>
             `).join('');
+        }
+
+        function appendProgress(nodes) {
+            const container = document.getElementById('progressNodes');
+            const startIdx = pipelineNodes.length;
+            nodeIndexOffset = startIdx;
+
+            // Hide review panel
+            document.getElementById('reviewPanel').style.display = 'none';
+            const metaEl = document.getElementById('progressMeta');
+            metaEl.innerHTML = metaEl.innerHTML.replace(/⏸ Paused for Review/g, '').trim();
+
+            // Append new nodes to tracking array
+            pipelineNodes = pipelineNodes.concat(nodes);
+
+            // Append new node elements
+            nodes.forEach((name, idx) => {
+                const globalIdx = startIdx + idx;
+                container.insertAdjacentHTML('beforeend', `
+                    <div class="progress-node pending" id="node-${globalIdx}">
+                        <div class="node-indicator">${globalIdx + 1}</div>
+                        <div class="node-info">
+                            <div class="node-name">${name}</div>
+                            <div class="node-time" id="node-time-${globalIdx}"></div>
+                            <div class="node-progress" id="node-progress-${globalIdx}" style="display: none;">
+                                <div class="progress-bar"><div class="progress-bar-fill" id="node-progress-fill-${globalIdx}"></div></div>
+                                <span class="progress-text" id="node-progress-text-${globalIdx}"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="node-result" id="node-result-${globalIdx}" style="display: none;"></div>
+                `);
+            });
         }
 
         function updateNodeStatus(index, status, elapsed, result) {
@@ -1202,7 +1454,7 @@
                 // Check if this is layout_preview with an image path
                 const previewPath = result.layout_preview_post_path || result.layout_preview_refine_path || result.layout_preview_path;
                 if (previewPath) {
-                    const match = previewPath.match(/runs\/([^\/]+)/);
+                    const match = previewPath.match(/runs\/(.+?)\/draw_layout_preview/);
                     if (match) {
                         const runName = match[1];
                         const endpoint = result.layout_preview_post_path ? 'preview-post' : result.layout_preview_refine_path ? 'preview-refine' : 'preview';
@@ -1269,26 +1521,33 @@
 
             // 2D Layout Previews (show all available)
             const previewSection = document.getElementById('pipelinePreviewSection');
-            if (runName) {
-                const t = Date.now();
-                let hasPreview = false;
-                if (data.layout_preview_path) {
-                    document.getElementById('pipelinePreviewInitial').src = `${API_BASE}/preview/${runName}?t=${t}`;
+            const t = Date.now();
+            let hasPreview = false;
+            if (data.layout_preview_path) {
+                const match = data.layout_preview_path.match(/runs\/(.+?)\/draw_layout_preview/);
+                if (match) {
+                    document.getElementById('pipelinePreviewInitial').src = `${API_BASE}/preview/${match[1]}?t=${t}`;
                     document.getElementById('pipelinePreviewInitialCard').style.display = 'block';
                     hasPreview = true;
                 }
-                if (data.layout_preview_refine_path) {
-                    document.getElementById('pipelinePreviewRefine').src = `${API_BASE}/preview-refine/${runName}?t=${t}`;
+            }
+            if (data.layout_preview_refine_path) {
+                const match = data.layout_preview_refine_path.match(/runs\/(.+?)\/draw_layout_preview/);
+                if (match) {
+                    document.getElementById('pipelinePreviewRefine').src = `${API_BASE}/preview-refine/${match[1]}?t=${t}`;
                     document.getElementById('pipelinePreviewRefineCard').style.display = 'block';
                     hasPreview = true;
                 }
-                if (data.layout_preview_post_path) {
-                    document.getElementById('pipelinePreviewPost').src = `${API_BASE}/preview-post/${runName}?t=${t}`;
+            }
+            if (data.layout_preview_post_path) {
+                const match = data.layout_preview_post_path.match(/runs\/(.+?)\/draw_layout_preview/);
+                if (match) {
+                    document.getElementById('pipelinePreviewPost').src = `${API_BASE}/preview-post/${match[1]}?t=${t}`;
                     document.getElementById('pipelinePreviewPostCard').style.display = 'block';
                     hasPreview = true;
                 }
-                if (hasPreview) previewSection.style.display = 'block';
             }
+            if (hasPreview) previewSection.style.display = 'block';
 
             // LayoutVLM GIF
             const gifSection = document.getElementById('pipelineGifSection');
@@ -1310,6 +1569,128 @@
             }
         }
 
+        function showReviewPanel(data) {
+            const panel = document.getElementById('reviewPanel');
+            panel.style.display = 'block';
+
+            // Update progress meta to show paused state
+            document.getElementById('progressMeta').innerHTML += ' <span style="color: var(--accent);">⏸ Paused for Review</span>';
+
+            // Show preview image
+            if (data.layout_preview_path) {
+                const match = data.layout_preview_path.match(/runs\/(.+?)\/draw_layout_preview/);
+                if (match) {
+                    document.getElementById('reviewPreviewImage').src = `${API_BASE}/preview/${match[1]}?t=${Date.now()}`;
+                }
+            }
+
+            // Show selected assets
+            const assetsList = document.getElementById('reviewAssetsList');
+            if (data.selected_assets && data.selected_assets.length > 0) {
+                assetsList.innerHTML = data.selected_assets.map(a =>
+                    `<span class="review-asset-tag">${a.uid} ($${a.price || 0})</span>`
+                ).join('');
+            } else {
+                assetsList.innerHTML = '<span style="color: var(--text-muted);">No assets</span>';
+            }
+
+            // Clear revision input
+            document.getElementById('revisionPrompt').value = '';
+        }
+
+        async function resumePipeline(withRevision) {
+            const btn = document.getElementById('runPipelineBtn');
+            setLoading(btn, true);
+
+            // Hide review panel
+            document.getElementById('reviewPanel').style.display = 'none';
+
+            const revisionPrompt = withRevision ? document.getElementById('revisionPrompt').value.trim() : null;
+
+            if (withRevision && !revisionPrompt) {
+                alert('Please enter a revision prompt or click Continue to proceed without changes.');
+                setLoading(btn, false);
+                document.getElementById('reviewPanel').style.display = 'block';
+                return;
+            }
+
+            const body = JSON.stringify({
+                run_dir: currentRunDir,
+                revision_prompt: revisionPrompt
+            });
+
+            try {
+                const res = await fetch(`${API_BASE}/pipeline/resume`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body
+                });
+
+                if (!res.ok) {
+                    const text = await res.text();
+                    showError(text);
+                    setLoading(btn, false);
+                    return;
+                }
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    buffer += chunk;
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            console.log('Resume SSE event:', data);
+
+                            switch (data.type) {
+                                case 'start':
+                                    // Append new nodes to existing progress view
+                                    appendProgress(data.nodes);
+                                    break;
+                                case 'node_start':
+                                    updateNodeStatus(nodeIndexOffset + data.index, 'active');
+                                    break;
+                                case 'node_progress':
+                                    updateNodeProgress(nodeIndexOffset + data.index, data.current, data.total);
+                                    break;
+                                case 'node_complete':
+                                    updateNodeStatus(nodeIndexOffset + data.index, 'completed', data.elapsed, data.result);
+                                    break;
+                                case 'heartbeat':
+                                    document.getElementById(`node-time-${nodeIndexOffset + data.index}`).textContent = `${data.elapsed}s...`;
+                                    break;
+                                case 'complete':
+                                    const totalTime = Object.values(nodeElapsedTimes).reduce((a, b) => a + b, 0);
+                                    document.getElementById('progressMeta').textContent = `${pipelineNodes.length}/${pipelineNodes.length} nodes • ${totalTime.toFixed(2)}s`;
+                                    showPipelineInlineResults(data.data, data.data?.run_dir);
+                                    break;
+                                case 'error':
+                                    updateNodeStatus(nodeIndexOffset + data.index, 'error', data.elapsed, null);
+                                    showNodeError(nodeIndexOffset + data.index, data.message);
+                                    break;
+                            }
+                        } catch (e) {
+                            console.error('Resume SSE parse error:', e, line);
+                        }
+                    }
+                }
+            } catch (err) {
+                showError(err.message);
+            }
+
+            setLoading(btn, false);
+        }
+
         async function runPipeline() {
             const btn = document.getElementById('runPipelineBtn');
             setLoading(btn, true);
@@ -1324,7 +1705,8 @@
                 run_initial_layout: document.getElementById('runInitialLayoutToggle').classList.contains('active'),
                 run_refine_layout: document.getElementById('runRefineLayoutToggle').classList.contains('active'),
                 run_layoutvlm: document.getElementById('runLayoutVLMToggle').classList.contains('active'),
-                run_render_scene: document.getElementById('runRenderSceneToggle').classList.contains('active')
+                run_render_scene: document.getElementById('runRenderSceneToggle').classList.contains('active'),
+                pause_for_review: document.getElementById('pauseForReviewToggle').classList.contains('active')
             });
 
             try {
@@ -1390,6 +1772,11 @@
                                     // Update elapsed time to show progress during long operations
                                     document.getElementById(`node-time-${data.index}`).textContent = `${data.elapsed}s...`;
                                     break;
+                                case 'review_pause':
+                                    currentRunDir = data.run_dir;
+                                    showReviewPanel(data);
+                                    setLoading(btn, false);
+                                    return;
                                 case 'error':
                                     updateNodeStatus(data.index, 'error', data.elapsed, null);
                                     showNodeError(data.index, data.message);
@@ -1465,4 +1852,5 @@
         setInterval(checkHealth, 30000);
     </script>
 </body>
+
 </html>

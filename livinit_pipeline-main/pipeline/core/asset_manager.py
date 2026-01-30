@@ -13,14 +13,27 @@ class NumpyEncoder(json.JSONEncoder):
 
 
 class AssetManager:
-    def __init__(self, run_dir: str, max_runs: int | None = 20):
+    def __init__(self, run_dir: str | Path, max_runs: int | None = 20):
         self.run_dir = Path(run_dir)
         self.run_dir.mkdir(parents=True, exist_ok=True)
+        self.revision = 0
         if max_runs:
             self._cleanup_old_runs(max_runs)
 
+    def start_revision(self) -> int:
+        """Start a new revision, returns the revision number."""
+        self.revision += 1
+        return self.revision
+
+    @property
+    def base_path(self) -> Path:
+        """Current base path (run_dir or revision subfolder)."""
+        if self.revision == 0:
+            return self.run_dir
+        return self.run_dir / f"revision_{self.revision}"
+
     def stage_path(self, stage: str) -> Path:
-        path = self.run_dir / stage
+        path = self.base_path / stage
         path.mkdir(parents=True, exist_ok=True)
         return path
 

@@ -34,7 +34,7 @@ def _crop_to_content(image_path: Path, padding: int = 4) -> None:
     except Exception as e:
         logger.warning("Crop failed for %s: %s", image_path, e)
 
-BLENDER_SCRIPT = '''"""Batch render GLB files to top-down PNG images in a single Blender process."""
+BLENDER_SCRIPT = '''"""Batch render GLB files to top-down PNG images using pre-computed dimensions."""
 import sys
 import argparse
 import json
@@ -45,8 +45,6 @@ from pathlib import Path
 import bpy
 from mathutils import Vector, Euler
 
-# frontView convention: 0=-Y, 1=+X, 2=+Y, 3=-X
-# Rotation needed to normalize to face -Y (top-down shows front at bottom)
 FRONT_VIEW_ROTATIONS = {0: 0, 1: -math.pi/2, 2: -math.pi, 3: math.pi/2}
 
 
@@ -57,33 +55,26 @@ def clean_scene():
     bpy.ops.object.delete()
     for collection in bpy.data.collections:
         bpy.data.collections.remove(collection)
-    # Clear orphan data to prevent memory bloat
     bpy.ops.outliner.orphans_purge(do_recursive=True)
 
 
 def setup_render_engine():
     scene = bpy.context.scene
-    for eng in ['BLENDER_EEVEE_NEXT', 'BLENDER_EEVEE', 'CYCLES']:
+    for eng in ['BLENDER_EEVEE_NEXT', 'BLENDER_EEVEE']:
         try:
             scene.render.engine = eng
             break
         except:
             continue
-
     scene.render.film_transparent = True
     scene.render.image_settings.color_mode = 'RGBA'
     scene.render.image_settings.file_format = 'PNG'
-    scene.render.resolution_x = 256
-    scene.render.resolution_y = 256
+    scene.render.resolution_x = 128
+    scene.render.resolution_y = 128
     scene.render.resolution_percentage = 100
-
-    if scene.render.engine == 'CYCLES':
-        scene.cycles.samples = 32
-        scene.cycles.use_adaptive_sampling = True
-        scene.cycles.device = 'CPU'
-    elif 'EEVEE' in scene.render.engine and hasattr(scene, 'eevee'):
+    if 'EEVEE' in scene.render.engine and hasattr(scene, 'eevee'):
         if hasattr(scene.eevee, 'taa_render_samples'):
-            scene.eevee.taa_render_samples = 8
+            scene.eevee.taa_render_samples = 4
 
 
 def import_model(glb_path):
@@ -93,73 +84,56 @@ def import_model(glb_path):
     return [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
 
 
-def normalize_scene(objects):
-    if not objects:
-        return Vector((0, 0, 0)), Vector((1, 1, 1))
-
-    min_v = Vector((float('inf'), float('inf'), float('inf')))
-    max_v = Vector((float('-inf'), float('-inf'), float('-inf')))
-
-    for obj in objects:
-        bpy.context.view_layer.objects.active = obj
-        bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
-        for corner in [obj.matrix_world @ Vector(bound) for bound in obj.bound_box]:
-            min_v.x = min(min_v.x, corner.x)
-            min_v.y = min(min_v.y, corner.y)
-            min_v.z = min(min_v.z, corner.z)
-            max_v.x = max(max_v.x, corner.x)
-            max_v.y = max(max_v.y, corner.y)
-            max_v.z = max(max_v.z, corner.z)
-
-    center_x = (min_v.x + max_v.x) / 2
-    center_y = (min_v.y + max_v.y) / 2
-    move_vec = Vector((-center_x, -center_y, -min_v.z))
-
+def center_objects(objects, center):
+    """Center objects using pre-computed center from processed.json."""
+    if not objects or not center:
+        return
+    move_vec = Vector((-center[0], -center[1], -center[2]))
     for obj in bpy.context.scene.objects:
-        obj.location += move_vec
+        if obj.type == 'MESH':
+            obj.location += move_vec
 
-    return min_v + move_vec, max_v + move_vec
 
-
-def setup_camera_and_lighting(min_v, max_v):
+def setup_camera_and_lighting(width, depth):
+    """Setup camera using pre-computed dimensions."""
     bpy.ops.object.light_add(type='SUN', location=(0, 0, 10))
-    sun = bpy.context.active_object
-    sun.data.energy = 5.0
+    bpy.context.active_object.data.energy = 5.0
 
     bpy.ops.object.light_add(type='AREA', location=(0, 0, 10))
     fill = bpy.context.active_object
     fill.data.energy = 200.0
     fill.data.size = 10.0
 
-    
     bpy.ops.object.camera_add(location=(0, 0, 10))
     cam = bpy.context.active_object
     cam.data.type = 'ORTHO'
-    cam.data.ortho_scale = max(max_v.x - min_v.x, max_v.y - min_v.y) * 1.2
+    cam.data.ortho_scale = max(width, depth) * 1.2
     bpy.context.scene.camera = cam
 
 
-def render_single(input_path: Path, output_path: Path, front_rotation: float = 0) -> bool:
-    """Render a single GLB file. Returns True on success."""
+def render_single(task: dict) -> bool:
+    """Render using pre-computed dimensions from processed.json."""
     try:
         clean_scene()
-        objects = import_model(str(input_path))
+        objects = import_model(task["input"])
         if not objects:
-            print(f"SKIP: No mesh in {input_path.name}")
+            print(f"SKIP: No mesh in {task['input']}")
             return False
 
-        # Apply front rotation to normalize facing direction
-        if front_rotation != 0:
+        if task.get("front_rotation", 0) != 0:
             for obj in bpy.context.scene.objects:
-                obj.rotation_euler = Euler((0, 0, front_rotation), 'XYZ')
+                if obj.type == 'MESH':
+                    obj.rotation_euler = Euler((0, 0, task["front_rotation"]), 'XYZ')
+                    bpy.context.view_layer.objects.active = obj
+                    bpy.ops.object.transform_apply(rotation=True)
 
-        min_v, max_v = normalize_scene(objects)
-        setup_camera_and_lighting(min_v, max_v)
-        bpy.context.scene.render.filepath = str(output_path)
+        center_objects(objects, task.get("center"))
+        setup_camera_and_lighting(task.get("width", 1), task.get("depth", 1))
+        bpy.context.scene.render.filepath = task["output"]
         bpy.ops.render.render(write_still=True)
-        return output_path.exists()
+        return Path(task["output"]).exists()
     except Exception as e:
-        print(f"ERROR: {input_path.name}: {e}")
+        print(f"ERROR: {task['input']}: {e}")
         return False
 
 
@@ -171,44 +145,24 @@ def main():
 
     args = argv[argv.index("--") + 1:]
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", help="Single GLB input file")
-    parser.add_argument("--output", help="Single PNG output file")
-    parser.add_argument("--batch", help="JSON file with list of {input, output} tasks")
+    parser.add_argument("--batch", required=True, help="JSON file with tasks")
     opt = parser.parse_args(args)
 
     setup_render_engine()
 
-    # Batch mode: process multiple files
-    if opt.batch:
-        with open(opt.batch) as f:
-            tasks = json.load(f)
+    with open(opt.batch) as f:
+        tasks = json.load(f)
 
-        results = {"success": [], "failed": []}
-        total = len(tasks)
-        for i, task in enumerate(tasks):
-            inp, out = Path(task["input"]), Path(task["output"])
-            front_rot = task.get("front_rotation", 0)
-            if render_single(inp, out, front_rot):
-                results["success"].append(str(out))
-            else:
-                results["failed"].append(str(inp))
-            print(f"PROGRESS: {i + 1}/{total}", flush=True)
-
-        # Write results back
-        result_path = Path(opt.batch).with_suffix(".result.json")
-        result_path.write_text(json.dumps(results))
-        print(f"DONE: {len(results['success'])} success, {len(results['failed'])} failed")
-
-    # Single file mode (backward compat)
-    elif opt.input and opt.output:
-        if render_single(Path(opt.input), Path(opt.output)):
-            print(f"SUCCESS: {opt.output}")
+    results = {"success": [], "failed": []}
+    for i, task in enumerate(tasks):
+        if render_single(task):
+            results["success"].append(task["output"])
         else:
-            print(f"FAILED: {opt.input}")
-            sys.exit(1)
-    else:
-        print("ERROR: Provide --batch or both --input and --output")
-        sys.exit(1)
+            results["failed"].append(task["input"])
+        print(f"PROGRESS: {i + 1}/{len(tasks)}", flush=True)
+
+    Path(opt.batch).with_suffix(".result.json").write_text(json.dumps(results))
+    print(f"DONE: {len(results['success'])} success, {len(results['failed'])} failed")
 
 
 if __name__ == "__main__":
@@ -235,11 +189,15 @@ async def render_topdown_node(state: dict[str, Any]) -> dict[str, Any]:
     RENDER_DIR.mkdir(parents=True, exist_ok=True)
     progress_cb: Callable[[int, int], None] | None = state.get("progress_callback")
 
-    # frontView convention: 0=-Y, 1=+X, 2=+Y, 3=-X
     import math
-    front_view_rotations = {0: 0, 1: -math.pi/2, 2: -math.pi, 3: math.pi/2}
+    front_rotations = {0: 0, 1: -math.pi/2, 2: -math.pi, 3: math.pi/2}
 
-    # Collect all pending render tasks
+    # Load asset dimensions from processed.json
+    processed_path = Path("dataset/processed.json")
+    assets_by_uid = {}
+    if processed_path.exists():
+        assets_by_uid = {a["uid"]: a for a in json.loads(processed_path.read_text())}
+
     tasks = []
     for subdir in BLOBS_DIR.iterdir():
         if not subdir.is_dir():
@@ -250,14 +208,18 @@ async def render_topdown_node(state: dict[str, Any]) -> dict[str, Any]:
         output_path = RENDER_DIR / f"{subdir.name}.png"
         if output_path.exists():
             continue
-        # Read frontView from data.json
-        front_rotation = 0
-        data_json = subdir / "data.json"
-        if data_json.exists():
-            data = json.loads(data_json.read_text())
-            front_view = data.get("annotations", {}).get("frontView", 0)
-            front_rotation = front_view_rotations.get(front_view, 0)
-        tasks.append({"input": str(glb_files[0]), "output": str(output_path), "front_rotation": front_rotation})
+
+        uid = subdir.name
+        asset = assets_by_uid.get(uid, {})
+        front_rotation = front_rotations.get(asset.get("frontView", 0), 0)
+        tasks.append({
+            "input": str(glb_files[0]),
+            "output": str(output_path),
+            "front_rotation": front_rotation,
+            "width": asset.get("width", 1),
+            "depth": asset.get("depth", 1),
+            "center": asset.get("center"),
+        })
 
     if not tasks:
         logger.info("[RENDER TOPDOWN] All renders up to date.")

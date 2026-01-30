@@ -13,6 +13,35 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
+ASSET_SELECTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "selected_assets": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["uid"],
+            },
+        },
+        "total_cost": {"type": "number"},
+        "total_footprint_sqm": {"type": "number"},
+        "selection_strategy": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "higher_budget_additions": {"type": "string"},
+                "lower_budget_savings": {"type": "string"},
+                "gaps": {"type": "string"},
+            },
+        },
+    },
+    "required": ["selected_assets"],
+}
+
 ENABLE_ASSET_COLLAGE = os.getenv("ENABLE_ASSET_COLLAGE", "true").lower() == "true"
 MAX_TURNS = 3
 
@@ -42,6 +71,7 @@ LLM_SELECTOR_CONFIG = types.GenerateContentConfig(
 
 LLM_SELECTOR_ENDING_CONFIG = types.GenerateContentConfig(
     response_mime_type="application/json",
+    response_json_schema=ASSET_SELECTION_SCHEMA,
     temperature=1,
     thinking_config=types.ThinkingConfig(thinking_level="low", include_thoughts=True),
 )
@@ -121,9 +151,11 @@ def create_asset_collages(assets: list[dict], manager: AssetManager, stage: str)
 
 
 def select_assets_llm_node(state: dict[str, Any]) -> dict[str, Any]:
-    """Pure LLM-based asset selection optimizing for budget and room size."""
+    """Pure LLM-based asset selection optimizing for budget and room size.
+
+    Supports revision mode when `asset_revision_prompt` is provided in state.
+    """
     room_width, room_depth = state["room_area"]
-    room_vertices = state.get("room_vertices", [])
     room_doors = state.get("room_doors", [])
     room_voids = state.get("room_voids", [])
     budget = state["budget"]
@@ -135,6 +167,10 @@ def select_assets_llm_node(state: dict[str, Any]) -> dict[str, Any]:
 
     manager: AssetManager = state["asset_manager"]
     stage = STAGE_DIRS["select_assets"]
+
+    # Revision mode: user wants to modify previous selection
+    revision_prompt = state.get("asset_revision_prompt")
+    previous_assets = state.get("selected_assets", [])
 
     # Build lookup for tool calls
     assets_by_uid = {a["uid"]: a for a in state["assets_data"]}
@@ -184,7 +220,20 @@ def select_assets_llm_node(state: dict[str, Any]) -> dict[str, Any]:
     # Create collages from asset images (if enabled)
     collages = create_asset_collages(state["assets_data"], manager, stage) if ENABLE_ASSET_COLLAGE else []
 
-    # --- UPDATE 3: Prompt Enforcing Tool Feedback Loop ---
+    # Build previous selection context for revision mode
+    previous_selection_context = ""
+    if revision_prompt and previous_assets:
+        prev_list = "\n".join(f"- {a['uid']}: {a.get('reason', '')}" for a in previous_assets)
+        previous_selection_context = f"""
+PREVIOUS SELECTION (to revise):
+{prev_list}
+
+USER REVISION REQUEST: {revision_prompt}
+
+Apply the user's requested changes to the previous selection. Keep items not mentioned in the revision request.
+"""
+        logger.info("[ASSET SELECTOR LLM] Revision mode: %s", revision_prompt)
+
     prompt = f"""You are a furniture curator. Select assets for this room.
 Use the attached collage images to visualize assets.
 
@@ -196,11 +245,9 @@ ROOM DATA:
 BUDGET: ${budget:.2f} (Strict Limit)
 
 USER INTENT: {state["user_intent"]}
-
+{previous_selection_context}
 ASSET CATALOG:
 {state["assets_csv"]}
-
-
 
 CRITICAL VALIDATION RULES:
 1. **Total Cost MUST be <= ${budget:.2f}**
@@ -253,9 +300,9 @@ OUTPUT JSON FORMAT:
     start = time.perf_counter()
 
     # Agentic loop to handle tool calls
-    for i in range(MAX_TURNS):
+    for _ in range(MAX_TURNS):
         response = client.models.generate_content(
-            model="gemini-3-pro-preview", contents=contents, config=LLM_SELECTOR_CONFIG
+            model="gemini-3-flash-preview", contents=contents, config=LLM_SELECTOR_CONFIG
         )
 
         has_function_call = False
@@ -357,4 +404,5 @@ OUTPUT JSON FORMAT:
     manager.write_json(stage, "llm_selection.json", parsed)
     logger.info("[ASSET SELECTOR LLM] Selected %d assets using %d collages", len(selected_assets), len(collages))
 
-    return {"selected_assets": selected_assets, "selection_strategy": parsed.get("selection_strategy", {})}
+    # Clear revision prompt after processing so graph doesn't loop indefinitely
+    return {"selected_assets": selected_assets, "selection_strategy": parsed.get("selection_strategy", {}), "asset_revision_prompt": None}

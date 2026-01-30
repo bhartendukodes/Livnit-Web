@@ -31,12 +31,12 @@ def rag_scope_assets_node(state: dict[str, Any]) -> dict[str, Any]:
             a["image_path"] = str(_RENDER_DIR / f"{uid}.png")
             scoped_data.append(a)
 
-    csv_lines = ["uid,category,price,width,depth,height,materials,color,style,shape,asset_description,description,score,image_path"]
+    csv_lines = ["uid,category,price,width,depth,height,materials,color,style,shape,asset_description,description"]
     for a in scoped_data:
         csv_lines.append(
             f'{a["uid"]},{a["category"]},{a["price"]},{a["width"]},{a["depth"]},{a["height"]},'
             f'"{a["materials"]}",{a.get("asset_color","")},{a.get("asset_style","")},{a.get("asset_shape","")},'
-            f'"{a.get("asset_description","")}","{a["description"][:100]}",{a["score"]:.4f},{a["image_path"]}'
+            f'"{a.get("asset_description","")}","{a["description"][:100]}"'
         )
     scoped_csv = "\n".join(csv_lines)
 

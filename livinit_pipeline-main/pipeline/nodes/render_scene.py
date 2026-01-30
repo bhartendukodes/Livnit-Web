@@ -138,49 +138,42 @@ def apply_room_textures(floor_config, _wall_config=None):
             obj.data.materials.append(floor_mat)
 
 
-def setup_lighting(center, max_z, use_eevee=False):
+def setup_lighting(center, max_z):
     sun = bpy.data.objects.new("Sun", bpy.data.lights.new("Sun", "SUN"))
     bpy.context.scene.collection.objects.link(sun)
-    sun.data.energy = 3 if not use_eevee else 2
+    sun.data.energy = 3
     sun.location = (center.x, center.y, max_z + 10)
     sun.rotation_euler = Euler((math.radians(45), 0, math.radians(45)), "XYZ")
-    if not use_eevee:
-        sun.data.use_shadow = True
-
-    if not use_eevee:
-        # Fill light only for CYCLES (EEVEE handles ambient differently)
-        fill = bpy.data.objects.new("Fill", bpy.data.lights.new("Fill", "AREA"))
-        bpy.context.scene.collection.objects.link(fill)
-        fill.data.energy = 500
-        fill.data.size = 5
-        fill.location = (center.x - 5, center.y - 5, max_z + 3)
+    sun.data.use_shadow = True
+    fill = bpy.data.objects.new("Fill", bpy.data.lights.new("Fill", "AREA"))
+    bpy.context.scene.collection.objects.link(fill)
+    fill.data.energy = 500
+    fill.data.size = 5
+    fill.location = (center.x - 5, center.y - 5, max_z + 3)
 
 
-def setup_render(resolution=1024, samples=32, use_gpu=False, use_eevee=False):
+def setup_render(resolution=1024, samples=32):
     scene = bpy.context.scene
 
-    if use_eevee:
-        # EEVEE - fast rasterization, good for low-end hardware
+    # Auto-detect GPU and choose engine accordingly
+    gpu_backend = None
+    prefs = bpy.context.preferences.addons["cycles"].preferences
+    for backend in ("METAL", "CUDA", "OPTIX", "HIP"):
         try:
-            scene.render.engine = "BLENDER_EEVEE_NEXT"
-        except:
-            scene.render.engine = "BLENDER_EEVEE"
-        scene.eevee.taa_render_samples = min(samples, 16)
-        scene.eevee.use_gtao = True
-        scene.eevee.use_ssr = False  # disable for speed
-        scene.eevee.use_bloom = False
-    else:
-        # CYCLES - ray tracing
-        scene.render.engine = "CYCLES"
-        if use_gpu:
-            prefs = bpy.context.preferences.addons["cycles"].preferences
-            prefs.compute_device_type = "METAL"
+            prefs.compute_device_type = backend
             prefs.get_devices()
-            for dev in prefs.devices:
-                dev.use = True
-            scene.cycles.device = "GPU"
-        else:
-            scene.cycles.device = "CPU"
+            if any(d.type != "CPU" for d in prefs.devices):
+                gpu_backend = backend
+                break
+        except:
+            continue
+
+    if gpu_backend:
+        # CYCLES with GPU
+        scene.render.engine = "CYCLES"
+        for dev in prefs.devices:
+            dev.use = True
+        scene.cycles.device = "GPU"
         scene.cycles.samples = samples
         scene.cycles.use_denoising = True
         scene.cycles.denoiser = "OPENIMAGEDENOISE"
@@ -193,6 +186,18 @@ def setup_render(resolution=1024, samples=32, use_gpu=False, use_eevee=False):
         scene.cycles.transparent_max_bounces = 2
         scene.cycles.volume_bounces = 0
         scene.render.use_persistent_data = True
+        print(f"[RENDER] Using CYCLES with GPU ({gpu_backend})")
+    else:
+        # EEVEE fallback when no GPU
+        try:
+            scene.render.engine = "BLENDER_EEVEE_NEXT"
+        except:
+            scene.render.engine = "BLENDER_EEVEE"
+        scene.eevee.taa_render_samples = min(samples, 16)
+        scene.eevee.use_gtao = True
+        scene.eevee.use_ssr = False
+        scene.eevee.use_bloom = False
+        print("[RENDER] No GPU found, using EEVEE")
 
     scene.render.resolution_x = resolution
     scene.render.resolution_y = resolution
@@ -289,7 +294,6 @@ def main():
     # Place assets
     layout = data.get("layout", {})
     assets_dir = data.get("assets_dir", "")
-    selected_assets = data.get("selected_assets", {})
 
     for idx, (uid, props) in enumerate(layout.items(), 1):
         if uid.startswith("void"):
@@ -327,13 +331,6 @@ def main():
         # Get position and rotation from layout
         pos = list(props.get("position", [0, 0, 0]))
         rot = props.get("rotation", [0, 0, 0])
-        
-        # Apply center offset from metadata if available
-        metadata = selected_assets.get(uid, {}) or selected_assets.get(folder_name, {})
-        center_offset = metadata.get("center", [0, 0, 0])
-        pos[0] += center_offset[0]
-        pos[1] += center_offset[1]
-        
         place_asset(root, pos, rot, floor_z, offset_x, offset_y, center_x, center_y, rotation_y)
         lift_to_floor(root, floor_z)
 
@@ -342,12 +339,10 @@ def main():
     center = (mins + maxs) / 2
     size = maxs - mins
 
-    setup_lighting(center, maxs.z, data.get("use_eevee", False))
+    setup_lighting(center, maxs.z)
     setup_render(
         resolution=data.get("resolution", 1024),
         samples=data.get("samples", 32),
-        use_gpu=data.get("use_gpu", False),
-        use_eevee=data.get("use_eevee", False),
     )
 
     os.makedirs(data["output_dir"], exist_ok=True)
@@ -358,6 +353,12 @@ def main():
         usdz_path = os.path.join(data["output_dir"], "room_with_assets_final.usdz")
         bpy.ops.wm.usd_export(filepath=usdz_path)
         result["usdz_path"] = usdz_path
+
+    # Export GLB
+    if data.get("export_glb", False):
+        glb_path = os.path.join(data["output_dir"], "room_with_assets_final.glb")
+        bpy.ops.export_scene.gltf(filepath=glb_path, export_format='GLB')
+        result["glb_path"] = glb_path
 
     # Render views
     top_path = os.path.join(data["output_dir"], "render_top.png")
@@ -393,10 +394,9 @@ def render_scene_node(
     state: dict[str, Any],
     resolution: int = 1024,
     samples: int = 32,
-    use_gpu: bool = False,
-    use_eevee: bool = False,
     low_quality: bool = False,
     floor_texture: dict | None = None,
+    export_glb: bool = False,
 ) -> dict[str, Any]:
     """Render the scene layout using Blender.
 
@@ -404,13 +404,11 @@ def render_scene_node(
         state: Pipeline state
         resolution: Output image size (default 1024)
         samples: Render samples (default 32, lower = faster)
-        use_gpu: Use GPU for CYCLES (default False)
-        use_eevee: Use EEVEE instead of CYCLES (faster, for low-end hardware)
-        low_quality: Preset for fast server rendering (512px, 8 samples, EEVEE)
+        low_quality: Preset for fast server rendering (512px, 8 samples)
         floor_texture: {"color": [r,g,b], "roughness": float}. Set False to disable.
     """
     if low_quality:
-        resolution, samples, use_eevee = 512, 8, True
+        resolution, samples = 512, 8
     start = time.perf_counter()
 
     layout = state.get("layoutvlm_layout") or state.get("initial_layout")
@@ -429,11 +427,10 @@ def render_scene_node(
         "room_area": state.get("room_area"),
         "resolution": resolution,
         "samples": samples,
-        "use_gpu": use_gpu,
-        "use_eevee": use_eevee,
         "floor_texture": floor_texture,
         "render_perspective": True,
         "export_usdz": True,
+        "export_glb": export_glb,
     }
 
     if usdz_path := state.get("usdz_path"):
@@ -471,11 +468,12 @@ def render_scene_node(
         raise RuntimeError(f"Render failed: {output_data}")
 
     log_duration("RENDER SCENE", start)
-    logger.info("[RENDER SCENE] USDZ: %s", output_data.get("usdz_path"))
+    logger.info("[RENDER SCENE] USDZ: %s, GLB: %s", output_data.get("usdz_path"), output_data.get("glb_path"))
     logger.info("[RENDER SCENE] Top: %s, Persp: %s", output_data.get("top_view"), output_data.get("perspective_view"))
 
     return {
         "final_usdz_path": output_data.get("usdz_path"),
+        "final_glb_path": output_data.get("glb_path"),
         "render_top_view": output_data.get("top_view"),
         "render_perspective_view": output_data.get("perspective_view"),
     }
