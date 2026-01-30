@@ -50,33 +50,24 @@ export async function GET(
       )
     }
 
-    // Get the blob from the response
-    const blob = await response.blob()
-    console.log('✅ Successfully got GLB blob from backend, size:', blob.size, 'bytes')
-    
-    // Verify blob has content
-    if (blob.size === 0) {
-      console.error('❌ GLB Blob is empty')
-      return NextResponse.json(
-        { detail: 'Downloaded GLB file is empty' },
-        { status: 500 }
-      )
-    }
-    
-    // Return the blob with proper headers
-    const headers = {
-      'Content-Type': response.headers.get('Content-Type') || 'model/gltf-binary',
-      'Content-Disposition': response.headers.get('Content-Disposition') || `attachment; filename="room_with_assets.glb"`,
-      'Content-Length': blob.size.toString(),
+    // Stream the response body through instead of buffering (avoids memory/timeout for large GLB)
+    const contentType = response.headers.get('Content-Type') || 'model/gltf-binary'
+    const contentDisposition = response.headers.get('Content-Disposition') || 'attachment; filename="room_with_assets.glb"'
+    const contentLength = response.headers.get('Content-Length')
+
+    const headers: Record<string, string> = {
+      'Content-Type': contentType,
+      'Content-Disposition': contentDisposition,
       'Cache-Control': 'public, max-age=3600',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET',
       'Access-Control-Allow-Headers': 'Content-Type',
     }
-    
-    console.log('✅ API Route: Returning GLB blob with headers:', headers)
-    
-    return new NextResponse(blob, {
+    if (contentLength) headers['Content-Length'] = contentLength
+
+    console.log('✅ API Route: Streaming GLB with headers:', headers)
+
+    return new NextResponse(response.body, {
       status: 200,
       headers,
     })

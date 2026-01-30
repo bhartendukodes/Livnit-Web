@@ -8,8 +8,6 @@ import ChatInterface from '@/components/ChatInterface'
 import DesignInput from '@/components/DesignInput'
 import FileUploadModal from '@/components/FileUploadModal'
 import PipelineProgressModal from '@/components/PipelineProgressModal'
-import BackendStatus from '@/components/BackendStatus'
-import ApiConnectionTest from '@/components/ApiConnectionTest'
 import AnimatedSection from '@/components/AnimatedSection'
 import { usePipeline } from '@/hooks/usePipeline'
 
@@ -59,16 +57,6 @@ export default function Home() {
     setShowUploadModal(true)
   }
 
-  const handleSurprise = () => {
-    const surprisePrompts = [
-      'Create a minimalist Scandinavian living room with natural wood accents',
-      'Design a cozy bohemian bedroom with plants and warm lighting',
-      'Plan a modern industrial kitchen with exposed brick and metal fixtures',
-    ]
-    const randomPrompt = surprisePrompts[Math.floor(Math.random() * surprisePrompts.length)]
-    setUserPrompt(randomPrompt)
-    setShowUploadModal(true)
-  }
 
   const handleFileUpload = async (file: File) => {
     setShowUploadModal(false)
@@ -91,23 +79,52 @@ export default function Home() {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      {/* Subtle Background */}
+      {/* Animated Background */}
       <div className="absolute inset-0 -z-10">
+        {/* Base gradient */}
         <div className="absolute inset-0"
              style={{ 
-               background: `linear-gradient(135deg, rgb(var(--surface-soft)) 0%, rgb(var(--surface)) 100%)` 
+               background: `linear-gradient(135deg, rgb(var(--primary-50)) 0%, rgb(var(--surface-soft)) 40%, rgb(var(--primary-50)) 100%)` 
              }}></div>
         
-        {/* Subtle geometric accents */}
-        <div className="absolute top-20 right-20 w-32 h-32 bg-primary-100 rounded-full opacity-30 animate-float"
-             style={{ backgroundColor: 'rgb(var(--primary-100))', animationDelay: '0s' }}></div>
-        <div className="absolute bottom-40 left-20 w-24 h-24 bg-primary-200 rounded-full opacity-20 animate-float"
-             style={{ backgroundColor: 'rgb(var(--primary-200))', animationDelay: '3s' }}></div>
+        {/* Animated floating elements */}
+        <div className="absolute top-32 right-32 w-40 h-40 rounded-full opacity-20 animate-float blur-sm"
+             style={{ 
+               background: `radial-gradient(circle, rgb(var(--primary-200)) 0%, transparent 70%)`,
+               animationDelay: '0s',
+               animationDuration: '8s'
+             }}></div>
+        <div className="absolute top-80 left-20 w-32 h-32 rounded-full opacity-15 animate-float blur-sm"
+             style={{ 
+               background: `radial-gradient(circle, rgb(var(--primary-300)) 0%, transparent 70%)`,
+               animationDelay: '2s',
+               animationDuration: '10s'
+             }}></div>
+        <div className="absolute bottom-40 right-16 w-24 h-24 rounded-full opacity-10 animate-float blur-sm"
+             style={{ 
+               background: `radial-gradient(circle, rgb(var(--primary-400)) 0%, transparent 70%)`,
+               animationDelay: '4s',
+               animationDuration: '12s'
+             }}></div>
+        <div className="absolute bottom-20 left-1/3 w-36 h-36 rounded-full opacity-12 animate-float blur-sm"
+             style={{ 
+               background: `radial-gradient(circle, rgb(var(--primary-200)) 0%, transparent 70%)`,
+               animationDelay: '6s',
+               animationDuration: '14s'
+             }}></div>
+             
+        {/* Subtle mesh gradient overlay */}
+        <div className="absolute inset-0 opacity-5"
+             style={{ 
+               background: `repeating-linear-gradient(45deg, 
+                 rgba(var(--primary-500), 0.02) 0px, 
+                 transparent 2px, 
+                 transparent 40px, 
+                 rgba(var(--primary-500), 0.02) 42px
+               )`
+             }}></div>
       </div>
 
-      {/* Backend Status Indicator */}
-      <BackendStatus />
-      
       {/* Navigation */}
       <Navigation />
 
@@ -123,10 +140,10 @@ export default function Home() {
             />
 
             {/* Design Input Section */}
-            <div className="compact-card p-8 md:p-12">
+            <div className="compact-card p-8 md:p-12 border shadow-sm"
+                 style={{ borderColor: 'rgb(var(--surface-muted))' }}>
               <DesignInput
                 onGenerate={handleGenerate}
-                onSurprise={handleSurprise}
               />
             </div>
 
@@ -150,7 +167,8 @@ export default function Home() {
                     description: "Direct purchase links"
                   }
                 ].map((feature, index) => (
-                  <div key={index} className="compact-card p-4 text-center hover:shadow-md transition-all duration-200">
+                  <div key={index} className="compact-card p-4 text-center hover:shadow-md transition-all duration-200 border" 
+                       style={{ borderColor: 'rgb(var(--surface-muted))' }}>
                     <div className="text-2xl mb-2">{feature.icon}</div>
                     <h4 className="font-semibold text-primary-900 text-sm mb-1" 
                         style={{ color: 'rgb(var(--text-primary))' }}>
@@ -165,20 +183,14 @@ export default function Home() {
             </AnimatedSection>
           </div>
         ) : (
-          /* Result Screen */
-          <div className="max-w-7xl mx-auto">
-            <AnimatedSection animation="fade-in" className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-              {/* Left Panel - Room View */}
-              <div className="lg:col-span-3">
-                <div className="compact-card p-4 flex flex-col min-h-[calc(100vh-140px)]">
-                  {/* Compact Filter Section */}
-                  <FilterSection 
-                    onReset={handleReset}
-                    onBudgetChange={setSelectedBudget}
-                  />
-
-                  {/* Room View */}
-                  <div className="flex-1 min-h-0">
+          /* Result Screen - wider container so preview and chat get more width */
+          <div className="w-full max-w-[1600px] mx-auto px-2 sm:px-4">
+            <AnimatedSection animation="fade-in" className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              {/* Left Panel - 3D Preview (~67%) */}
+              <div className="lg:col-span-8 flex flex-col min-h-[calc(100vh-120px)]">
+                <div className="compact-card p-4 flex flex-col flex-1 min-h-0">
+                  {/* Room View - fills space to bottom */}
+                  <div className="flex-1 min-h-0 flex flex-col">
                     <RoomView 
                       finalUsdzBlob={finalUsdzBlob}
                       finalGlbBlob={finalGlbBlob}
@@ -194,9 +206,10 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Right Panel - Chat Interface */}
-              <div className="lg:col-span-1">
-                <div className="compact-card h-[calc(100vh-140px)] overflow-hidden">
+              {/* Right Panel - Chat (~33%) */}
+              <div className="lg:col-span-4">
+                <div className="compact-card h-[calc(100vh-140px)] overflow-hidden border shadow-sm"
+                     style={{ borderColor: 'rgb(var(--surface-muted))' }}>
                   <ChatInterface 
                     initialMessage={userPrompt}
                     pipelineResult={pipelineResult}
@@ -235,20 +248,6 @@ export default function Home() {
         onAbort={abortPipeline}
       />
       
-      {/* API Connection Test - only in development */}
-      {process.env.NODE_ENV === 'development' && (
-        <ApiConnectionTest />
-      )}
-      
-      {/* Debug info - remove in production */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="fixed bottom-4 left-4 bg-black/80 text-white px-3 py-2 rounded text-xs z-[10000] pointer-events-none">
-          <div>Pipeline: {pipelineStatus}</div>
-          <div>Progress: {progress.nodesCompleted.length}/{progress.totalNodes || 0}</div>
-        </div>
-      )}
-
-      {/* Debug Panel (development only) */}
     </div>
   )
 }

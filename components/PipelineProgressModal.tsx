@@ -24,13 +24,30 @@ const PipelineProgressModal: React.FC<PipelineProgressModalProps> = ({
 }) => {
   if (!isOpen) return null
 
+  // Map technical node names to user-friendly names
+  const getDisplayNodeName = (technicalName: string): string => {
+    const nodeNameMap: Record<string, string> = {
+      'extract_room': 'Analyzing Your Space',
+      'select_assets': 'Curating Your Furniture', 
+      'validate_and_cost': 'Confirming Availability & Pricing',
+      'initial_layout': 'Drafting Your First Layout',
+      'layout_preview': 'Reviewing Your First Preview',
+      'refine_layout': 'Refining the Layout',
+      'layout_preview_refine': 'Reviewing Final Updates',
+      'layoutvlm': 'Finalizing & Rendering',
+      'layout_preview_post': 'Your Design Reveal'
+    }
+    
+    return nodeNameMap[technicalName] || technicalName.replace(/_/g, ' ')
+  }
+
   const getStatusMessage = () => {
     switch (status) {
       case 'uploading':
         return 'Uploading USDZ file...'
       case 'running':
         return progress.currentNode 
-          ? `Running ${progress.currentNode}...`
+          ? getDisplayNodeName(progress.currentNode)
           : 'Starting pipeline...'
       case 'completed':
         return 'Pipeline completed successfully!'
@@ -111,7 +128,7 @@ const PipelineProgressModal: React.FC<PipelineProgressModalProps> = ({
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-600"></div>
               <div>
                 <p className="font-medium text-gray-900">
-                  {progress.currentNode.replace(/_/g, ' ').toUpperCase()}
+                  {getDisplayNodeName(progress.currentNode)}
                 </p>
                 {progress.nodeProgress && (
                   <p className="text-sm text-gray-600">
@@ -144,7 +161,7 @@ const PipelineProgressModal: React.FC<PipelineProgressModalProps> = ({
                       strokeLinejoin="round"
                     />
                   </svg>
-                  <span>{node.replace(/_/g, ' ')}</span>
+                  <span>{getDisplayNodeName(node)}</span>
                 </div>
               ))}
             </div>

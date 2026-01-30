@@ -102,9 +102,10 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({
       <div className="absolute inset-0 bg-black bg-opacity-60 backdrop-blur-sm"></div>
       
       <div className="relative flex items-center justify-center min-h-screen p-4">
-        <div className={`compact-card max-w-md w-full mx-auto transition-all duration-300 ${
+        <div className={`compact-card max-w-md w-full mx-auto transition-all duration-300 shadow-xl border-2 ${
           isAnimating ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'
-        }`}>
+        }`}
+          style={{ borderColor: 'rgb(var(--primary-200))', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)' }}>
           
           {/* Compact Header */}
           <div className="flex items-center justify-between p-6 pb-4">
@@ -126,17 +127,18 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({
             </button>
           </div>
 
-          {/* Compact Upload Area */}
+          {/* Upload Area - clear border on white so drop zone is visible */}
           <div className="px-6">
             <div
-              className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ${
+              className={`relative rounded-xl p-8 text-center transition-all duration-200 ${
                 dragActive
-                  ? 'border-primary-500 bg-primary-50'
-                  : 'border-primary-200 bg-primary-25 hover:border-primary-300'
+                  ? 'border-2 border-solid shadow-lg'
+                  : 'border-2 border-dashed shadow-sm'
               }`}
               style={{
-                borderColor: dragActive ? 'rgb(var(--primary-500))' : 'rgb(var(--primary-200))',
-                backgroundColor: dragActive ? 'rgb(var(--primary-50))' : 'rgba(var(--primary-50), 0.2)'
+                borderColor: dragActive ? 'rgb(var(--primary-500))' : 'rgb(148 163 184)',
+                backgroundColor: dragActive ? 'rgb(var(--primary-50))' : 'rgb(248 250 252)',
+                boxShadow: dragActive ? '0 0 0 3px rgb(var(--primary-200))' : '0 1px 3px rgba(0,0,0,0.08)'
               }}
               onDragEnter={handleDrag}
               onDragLeave={handleDrag}

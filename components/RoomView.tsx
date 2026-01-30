@@ -72,9 +72,9 @@ const RoomView: React.FC<RoomViewProps> = ({
   }
 
   return (
-    <div className="relative w-full h-full">
+    <div className="relative w-full h-full min-h-0 flex flex-col">
       {finalGlbBlob ? (
-        <div className="relative w-full h-[450px]">
+        <div className="relative w-full flex-1 min-h-[80vh] rounded-lg overflow-hidden bg-gradient-to-br from-blue-50/50 to-indigo-100/50">
           {/* Show loader overlay until GLB is fully loaded and visible */}
           {(!isGlbLoaded || isGlbLoading) && (
             <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 rounded-lg z-10">
@@ -85,17 +85,17 @@ const RoomView: React.FC<RoomViewProps> = ({
               </div>
             </div>
           )}
-          {/* GLB viewer - always render but overlay hides it until loaded */}
+          {/* GLB viewer - fills space to bottom for full preview */}
           <SimpleGLBViewer 
             file={finalGlbBlob}
             onLoadComplete={() => handleGlbLoadStatusChange(false, true)}
             onError={() => handleGlbLoadStatusChange(false, false)}
-            className="w-full h-full"
-            style={{ height: '450px' }}
+            className="w-full h-full absolute inset-0"
+            style={{ minHeight: '80vh' }}
           />
         </div>
       ) : isDownloadingAssets ? (
-        <div className="relative w-full h-[450px] bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center rounded-lg">
+        <div className="relative w-full flex-1 min-h-[80vh] bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center rounded-lg">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"></div>
             <div className="text-lg font-medium text-gray-800">Downloading 3D Model...</div>
@@ -103,7 +103,7 @@ const RoomView: React.FC<RoomViewProps> = ({
           </div>
         </div>
       ) : pipelineResult ? (
-        <div className="relative w-full h-[450px] bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center rounded-lg">
+        <div className="relative w-full flex-1 min-h-[80vh] bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center rounded-lg">
           <div className="text-center text-gray-600">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"></div>
             <p className="font-medium">Processing 3D Model...</p>
@@ -111,7 +111,7 @@ const RoomView: React.FC<RoomViewProps> = ({
           </div>
         </div>
       ) : (
-        <div className="relative w-full h-[450px] bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center rounded-lg border-2 border-dashed border-blue-200">
+        <div className="relative w-full flex-1 min-h-[80vh] bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center rounded-lg border-2 border-dashed border-blue-200">
           <div className="text-center text-gray-600">
             <div className="text-4xl mb-4">🏠</div>
             <p className="font-medium">Upload USDZ file to see 3D design</p>

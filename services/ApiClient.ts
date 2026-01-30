@@ -403,15 +403,19 @@ export class ApiClient {
     try {
       console.log('📥 ApiClient: Starting GLB download for runDir:', runDir)
       
-      // Use Next.js API route to proxy the request (server-side, no CORS)
       const apiUrl = `/api/download/glb/${runDir}`
       console.log('📥 ApiClient: Fetching GLB from API route:', apiUrl)
+      
+      // Long timeout for large GLB files (5 min) - avoid abort during slow blob read
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000)
       
       const response = await fetch(apiUrl, {
         method: 'GET',
         headers: {
           'Accept': 'model/gltf-binary, application/octet-stream, */*',
         },
+        signal: controller.signal,
       })
 
       console.log('📊 ApiClient GLB: Response status:', response.status, response.statusText)
@@ -427,7 +431,10 @@ export class ApiClient {
         )
       }
 
-      const blob = await response.blob()
+      // Read body as arrayBuffer then Blob - often more reliable for large streams than .blob()
+      const arrayBuffer = await response.arrayBuffer()
+      clearTimeout(timeoutId)
+      const blob = new Blob([arrayBuffer], { type: response.headers.get('Content-Type') || 'model/gltf-binary' })
       console.log('✅ ApiClient GLB: Successfully got blob, size:', blob.size, 'bytes, type:', blob.type)
       
       // Verify blob has content
