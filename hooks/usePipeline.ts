@@ -58,6 +58,12 @@ export interface UsePipelineReturn {
     budget: number, 
     options?: Partial<PipelineRequest>
   ) => Promise<void>
+  runPipelineWithDefaultRoom: (
+    userIntent: string,
+    budget: number,
+    usdzPath: string,
+    options?: Partial<PipelineRequest>
+  ) => Promise<void>
   downloadFinalUSDZ: () => Promise<void>
   retryPipeline: () => Promise<void>
   abortPipeline: () => void
@@ -88,10 +94,11 @@ export function usePipeline(): UsePipelineReturn {
   
   // Store current request for retry
   const currentRequestRef = useRef<{
-    file: File
+    file?: File
     userIntent: string
     budget: number
     options?: Partial<PipelineRequest>
+    defaultUsdzPath?: string
   } | null>(null)
   
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -171,6 +178,7 @@ export function usePipeline(): UsePipelineReturn {
           const pipelineResult = event.data as PipelineResult
           setResult(pipelineResult)
           setStatus('completed')
+          setIsDownloadingAssets(true) // Show loading state immediately
           
           // Automatically download the final USDZ and preview images
           const downloadAssets = async () => {
@@ -179,7 +187,6 @@ export function usePipeline(): UsePipelineReturn {
               console.log('🔍 Pipeline result run_dir:', pipelineResult?.run_dir)
               
               if (pipelineResult?.run_dir) {
-                setIsDownloadingAssets(true)
                 setDownloadProgress(10)
                 
                 // Download GLB for web viewing (GLB is better for web than USDZ)
@@ -333,6 +340,52 @@ export function usePipeline(): UsePipelineReturn {
     }
   }, [handlePipelineEvent, handlePipelineError])
 
+  const runPipelineWithDefaultRoom = useCallback(async (
+    userIntent: string,
+    budget: number,
+    usdzPath: string,
+    options: Partial<PipelineRequest> = {}
+  ) => {
+    try {
+      currentRequestRef.current = { userIntent, budget, options, defaultUsdzPath: usdzPath }
+      setStatus('running')
+      setError(null)
+      setResult(null)
+      setProgress({ nodesCompleted: [] })
+
+      const pipelineRequest: PipelineRequest = {
+        user_intent: userIntent,
+        budget: budget,
+        usdz_path: usdzPath,
+        export_glb: true,
+        run_rag_scope: false,
+        run_select_assets: true,
+        run_initial_layout: true,
+        run_refine_layout: true,
+        run_layoutvlm: true,
+        run_render_scene: true,
+        ...options
+      }
+
+      console.log('🔄 Starting pipeline with default room:', usdzPath)
+      abortControllerRef.current = new AbortController()
+      await apiClient.runPipeline(
+        pipelineRequest,
+        handlePipelineEvent,
+        handlePipelineError,
+        abortControllerRef.current.signal
+      )
+    } catch (error) {
+      console.error('❌ Pipeline execution failed:', error)
+      if (error instanceof ApiClientError) {
+        setError(error.message)
+      } else {
+        setError(`Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+      setStatus('error')
+    }
+  }, [handlePipelineEvent, handlePipelineError])
+
   const downloadFinalUSDZ = useCallback(async () => {
     if (!result?.run_dir) {
       setError('No pipeline result available for download')
@@ -401,10 +454,13 @@ export function usePipeline(): UsePipelineReturn {
       setError('No previous request to retry')
       return
     }
-
-    const { file, userIntent, budget, options } = currentRequestRef.current
-    await uploadAndRunPipeline(file, userIntent, budget, options)
-  }, [uploadAndRunPipeline])
+    const { file, userIntent, budget, options, defaultUsdzPath } = currentRequestRef.current
+    if (file) {
+      await uploadAndRunPipeline(file, userIntent, budget, options)
+    } else if (defaultUsdzPath) {
+      await runPipelineWithDefaultRoom(userIntent, budget, defaultUsdzPath, options)
+    }
+  }, [uploadAndRunPipeline, runPipelineWithDefaultRoom])
 
   const abortPipeline = useCallback(() => {
     if (abortControllerRef.current) {
@@ -426,6 +482,7 @@ export function usePipeline(): UsePipelineReturn {
     isDownloadingAssets,
     downloadProgress,
     uploadAndRunPipeline,
+    runPipelineWithDefaultRoom,
     downloadFinalUSDZ,
     retryPipeline,
     abortPipeline,

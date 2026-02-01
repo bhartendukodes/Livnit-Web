@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import Navigation from '@/components/Navigation'
 import FilterSection from '@/components/FilterSection'
 import RoomView from '@/components/RoomView'
@@ -16,6 +16,9 @@ export default function Home() {
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [userPrompt, setUserPrompt] = useState('')
   const [selectedBudget, setSelectedBudget] = useState<number>(5000)
+  const [selectedDimensions, setSelectedDimensions] = useState<string>('12x18')
+  const [uploadedUsdzFile, setUploadedUsdzFile] = useState<File | null>(null)
+  const navigateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   
   const {
     status: pipelineStatus,
@@ -36,39 +39,38 @@ export default function Home() {
     reset: resetPipeline
   } = usePipeline()
 
-  // Auto-switch to result screen when pipeline completes
-  React.useEffect(() => {
-    if (pipelineStatus === 'completed' && (finalUsdzBlob || finalGlbBlob)) {
-      console.log('🎯 Pipeline completed with 3D file - switching to result screen')
+  // Auto-navigate to result when pipeline completes (no modal prompt)
+  useEffect(() => {
+    if (pipelineStatus === 'completed') {
       setCurrentScreen('result')
     }
-  }, [pipelineStatus, finalUsdzBlob, finalGlbBlob])
+  }, [pipelineStatus])
 
   const handleReset = () => {
-    console.log('Filters reset')
+    if (navigateTimeoutRef.current) {
+      clearTimeout(navigateTimeoutRef.current)
+      navigateTimeoutRef.current = null
+    }
     resetPipeline()
     setCurrentScreen('input')
     setUserPrompt('')
+    setUploadedUsdzFile(null)
   }
 
-  const handleGenerate = (prompt: string) => {
-    console.log('🚀 Generate design clicked:', prompt)
+  const handleGenerate = async (prompt: string) => {
+    if (!uploadedUsdzFile) return // Mandatory: must upload room first
     setUserPrompt(prompt)
-    setShowUploadModal(true)
-  }
-
-
-  const handleFileUpload = async (file: File) => {
-    setShowUploadModal(false)
-    
     try {
-      console.log('🔄 Starting pipeline with uploaded file:', file.name)
-      await uploadAndRunPipeline(file, userPrompt, selectedBudget)
-      setCurrentScreen('result')
+      console.log('🚀 Generate with uploaded USDZ:', uploadedUsdzFile.name)
+      await uploadAndRunPipeline(uploadedUsdzFile, prompt, selectedBudget)
     } catch (error) {
       console.error('Pipeline failed:', error)
-      // Error is handled by the hook, just log it
     }
+  }
+
+  const handleUsdzSelected = (file: File) => {
+    setUploadedUsdzFile(file)
+    setShowUploadModal(false)
   }
 
   const handleBackToInput = () => {
@@ -131,52 +133,32 @@ export default function Home() {
       {/* Main Content */}
       <main className="px-4 py-6">
         {currentScreen === 'input' ? (
-          /* Input Screen */
-          <div className="max-w-4xl mx-auto">
-            {/* Filter Section */}
+          /* Input Screen - redesigned */
+          <div className="max-w-2xl mx-auto">
             <FilterSection 
               onReset={handleReset}
               onBudgetChange={setSelectedBudget}
+              onDimensionsChange={setSelectedDimensions}
             />
 
-            {/* Design Input Section */}
-            <div className="compact-card p-8 md:p-12 border shadow-sm"
-                 style={{ borderColor: 'rgb(var(--surface-muted))' }}>
-              <DesignInput
-                onGenerate={handleGenerate}
-              />
-            </div>
+            <DesignInput
+              onGenerate={handleGenerate}
+              hasUploadedRoom={!!uploadedUsdzFile}
+              onUploadClick={() => setShowUploadModal(true)}
+              uploadedFileName={uploadedUsdzFile?.name}
+            />
 
-            {/* Compact Features Section */}
-            <AnimatedSection animation="slide-up" delay={400} className="mt-8">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Features */}
+            <AnimatedSection animation="slide-up" delay={400} className="mt-12">
+              <div className="grid grid-cols-3 gap-3 sm:gap-4">
                 {[
-                  {
-                    icon: "🤖",
-                    title: "AI-Powered",
-                    description: "Smart design algorithms"
-                  },
-                  {
-                    icon: "📱",
-                    title: "3D Preview",
-                    description: "Interactive visualization"
-                  },
-                  {
-                    icon: "🛒",
-                    title: "Real Products",
-                    description: "Direct purchase links"
-                  }
-                ].map((feature, index) => (
-                  <div key={index} className="compact-card p-4 text-center hover:shadow-md transition-all duration-200 border" 
-                       style={{ borderColor: 'rgb(var(--surface-muted))' }}>
-                    <div className="text-2xl mb-2">{feature.icon}</div>
-                    <h4 className="font-semibold text-primary-900 text-sm mb-1" 
-                        style={{ color: 'rgb(var(--text-primary))' }}>
-                      {feature.title}
-                    </h4>
-                    <p className="text-xs text-muted" style={{ color: 'rgb(var(--text-muted))' }}>
-                      {feature.description}
-                    </p>
+                  { icon: "🤖", label: "AI-Powered" },
+                  { icon: "📱", label: "3D Preview" },
+                  { icon: "🛒", label: "Real Products" }
+                ].map((f, i) => (
+                  <div key={i} className="card-premium p-4 sm:p-5 flex flex-col items-center justify-center gap-2 text-center">
+                    <span className="text-2xl">{f.icon}</span>
+                    <span className="text-xs font-semibold" style={{ color: 'rgb(var(--text-secondary))' }}>{f.label}</span>
                   </div>
                 ))}
               </div>
@@ -228,7 +210,7 @@ export default function Home() {
           key="upload-modal"
           isOpen={showUploadModal}
           onClose={() => setShowUploadModal(false)}
-          onUpload={handleFileUpload}
+          onUpload={handleUsdzSelected}
         />
       )}
 
@@ -238,12 +220,7 @@ export default function Home() {
         status={pipelineStatus}
         progress={progress}
         error={pipelineError}
-        onClose={() => {
-          if (pipelineStatus === 'completed') {
-            console.log('🎯 Pipeline completed, switching to result screen')
-            setCurrentScreen('result')
-          }
-        }}
+        onClose={() => {}}
         onRetry={retryPipeline}
         onAbort={abortPipeline}
       />

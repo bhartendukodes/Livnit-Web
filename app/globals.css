@@ -377,6 +377,24 @@ html {
   box-shadow: 0 0 0 2px rgba(var(--primary-500), 0.08);
 }
 
+/* Premium card - soft glass look */
+.card-premium {
+  background: linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(250,252,255,0.9) 100%);
+  border: 1px solid rgba(var(--primary-500), 0.08);
+  border-radius: 20px;
+  box-shadow: 
+    0 1px 0 0 rgba(255,255,255,0.8) inset,
+    0 4px 24px rgba(0,0,0,0.04),
+    0 0 0 1px rgba(0,0,0,0.02);
+  transition: box-shadow 0.2s ease;
+}
+.card-premium:hover {
+  box-shadow: 
+    0 1px 0 0 rgba(255,255,255,0.8) inset,
+    0 8px 32px rgba(0,0,0,0.06),
+    0 0 0 1px rgba(0,0,0,0.02);
+}
+
 /* ==========================================
    MODEL VIEWER STYLES
    ========================================== */

@@ -1,16 +1,21 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 
 interface FilterSectionProps {
   onReset: () => void
   onBudgetChange?: (budget: number) => void
+  onDimensionsChange?: (dimensions: string) => void
 }
 
-const FilterSection: React.FC<FilterSectionProps> = ({ onReset, onBudgetChange }) => {
-  const [roomType, setRoomType] = useState('dining-room')
+const FilterSection: React.FC<FilterSectionProps> = ({ onReset, onBudgetChange, onDimensionsChange }) => {
+  const [roomType, setRoomType] = useState('living-room')
   const [dimensions, setDimensions] = useState('12x18')
   const [budget, setBudget] = useState('5000')
+
+  useEffect(() => {
+    onDimensionsChange?.(dimensions)
+  }, [dimensions, onDimensionsChange])
 
   const handleBudgetChange = (value: string) => {
     setBudget(value)
@@ -25,7 +30,7 @@ const FilterSection: React.FC<FilterSectionProps> = ({ onReset, onBudgetChange }
   }
 
   const handleReset = () => {
-    setRoomType('dining-room')
+    setRoomType('living-room')
     setDimensions('12x18')
     setBudget('5000')
     if (onBudgetChange) {
@@ -36,12 +41,12 @@ const FilterSection: React.FC<FilterSectionProps> = ({ onReset, onBudgetChange }
 
   return (
     <div className="mb-6">
-      <div className="compact-card p-4">
+      <div className="card-premium p-5 md:p-6">
         <div className="flex flex-col md:flex-row gap-3 md:gap-4">
           {/* Room Type */}
           <div className="flex-1">
-            <label className="block text-xs font-semibold text-primary-700 mb-1.5"
-                   style={{ color: 'rgb(var(--primary-700))' }}>
+            <label className="block text-xs font-semibold mb-1.5"
+                   style={{ color: 'rgb(var(--text-secondary))' }}>
               Room Type
             </label>
             <div className="relative">
@@ -50,13 +55,12 @@ const FilterSection: React.FC<FilterSectionProps> = ({ onReset, onBudgetChange }
                 onChange={(e) => setRoomType(e.target.value)}
                 className="modern-select w-full appearance-none pr-8 py-2.5"
               >
-                <option value="">Select Room</option>
                 <option value="living-room">🛋️ Living Room</option>
-                <option value="bedroom">🛏️ Bedroom</option>
-                <option value="kitchen">🍳 Kitchen</option>
-                <option value="bathroom">🚿 Bathroom</option>
-                <option value="dining-room">🍽️ Dining Room</option>
-                <option value="office">💼 Office</option>
+                <option value="bedroom" disabled>🛏️ Bedroom (coming soon)</option>
+                <option value="kitchen" disabled>🍳 Kitchen (coming soon)</option>
+                <option value="bathroom" disabled>🚿 Bathroom (coming soon)</option>
+                <option value="dining-room" disabled>🍽️ Dining Room (coming soon)</option>
+                <option value="office" disabled>💼 Office (coming soon)</option>
               </select>
               <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-muted">
@@ -68,8 +72,8 @@ const FilterSection: React.FC<FilterSectionProps> = ({ onReset, onBudgetChange }
 
           {/* Dimensions */}
           <div className="flex-1">
-            <label className="block text-xs font-semibold text-primary-700 mb-1.5"
-                   style={{ color: 'rgb(var(--primary-700))' }}>
+            <label className="block text-xs font-semibold mb-1.5"
+                   style={{ color: 'rgb(var(--text-secondary))' }}>
               Size
             </label>
             <div className="relative">
@@ -94,8 +98,8 @@ const FilterSection: React.FC<FilterSectionProps> = ({ onReset, onBudgetChange }
 
           {/* Budget */}
           <div className="flex-1">
-            <label className="block text-xs font-semibold text-primary-700 mb-1.5"
-                   style={{ color: 'rgb(var(--primary-700))' }}>
+            <label className="block text-xs font-semibold mb-1.5"
+                   style={{ color: 'rgb(var(--text-secondary))' }}>
               Budget
             </label>
             <div className="relative">

@@ -5,20 +5,29 @@ import AnimatedSection from './AnimatedSection'
 
 interface DesignInputProps {
   onGenerate: (prompt: string) => void
+  hasUploadedRoom?: boolean
+  onUploadClick?: () => void
+  uploadedFileName?: string
 }
 
-const DesignInput: React.FC<DesignInputProps> = ({ onGenerate }) => {
+const DesignInput: React.FC<DesignInputProps> = ({
+  onGenerate,
+  hasUploadedRoom = false,
+  onUploadClick,
+  uploadedFileName
+}) => {
   const [prompt, setPrompt] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const suggestions = [
-    "Modern Scandinavian living room with beige curved sofa, oak coffee table, and white walls",
-    "Cozy boho bedroom with rattan headboard, warm lighting, and macrame wall hangings",
-    "Industrial loft kitchen with exposed brick, black metal stools, and marble countertops", 
-    "Minimalist home office with standing desk, ergonomic chair, and built-in shelving",
-    "Luxe dining room with velvet chairs, crystal chandelier, and dark wood table",
-    "Zen meditation space with floor cushions, bamboo screens, and natural lighting"
+    "Warm Scandinavian living room: soft gray sectional, light oak coffee table, cream armchairs",
+    "Relaxed boho living room: velvet sofa in terracotta, rattan side tables, round jute rug",
+    "Clean minimalist living room: low white sofa, slim black metal coffee table",
+    "Classic mid-century: tufted olive sofa, walnut credenza, tapered-leg coffee table",
+    "Industrial loft: leather sofa, metal and wood coffee table, exposed-frame armchair",
+    "Soft modern: curved bouclé sofa, marble-top coffee table, velvet accent chair"
   ]
 
   const handleGenerate = (e?: React.MouseEvent) => {
@@ -26,11 +35,8 @@ const DesignInput: React.FC<DesignInputProps> = ({ onGenerate }) => {
       e.preventDefault()
       e.stopPropagation()
     }
-    
     const cleanPrompt = prompt.trim()
-    if (cleanPrompt) {
-      onGenerate(cleanPrompt)
-    }
+    if (cleanPrompt) onGenerate(cleanPrompt)
   }
 
   const handleSuggestionClick = (suggestion: string) => {
@@ -39,123 +45,160 @@ const DesignInput: React.FC<DesignInputProps> = ({ onGenerate }) => {
     textareaRef.current?.focus()
   }
 
-  // Auto-resize textarea
   useEffect(() => {
     const textarea = textareaRef.current
     if (textarea) {
       textarea.style.height = 'auto'
-      textarea.style.height = `${Math.max(textarea.scrollHeight, 120)}px`
+      textarea.style.height = `${Math.max(textarea.scrollHeight, 100)}px`
     }
   }, [prompt])
 
   return (
-    <div className="max-w-3xl mx-auto">
-      {/* Compact Header */}
-      <AnimatedSection animation="slide-up" className="text-center mb-8">
-        <div className="inline-flex items-center gap-3 mb-4">
-          <div className="w-12 h-12 bg-primary-500 rounded-xl flex items-center justify-center"
-               style={{ backgroundColor: 'rgb(var(--primary-500))' }}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-white">
-              <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="2"/>
-              <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2"/>
-              <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2"/>
-            </svg>
-          </div>
-          <div className="text-left">
-            <h1 className="text-3xl font-bold text-gradient">Design Your Space</h1>
-            <p className="text-sm text-muted -mt-0.5" style={{ color: 'rgb(var(--text-muted))' }}>
-              AI-powered interior design
-            </p>
-          </div>
-        </div>
-        
-        <p className="text-base text-secondary max-w-xl mx-auto leading-relaxed"
-           style={{ color: 'rgb(var(--text-secondary))' }}>
-          Describe your vision and let <span className="font-semibold text-primary-600" style={{ color: 'rgb(var(--primary-600))' }}>Livi</span> create 
-          a personalized design with real furniture and 3D visualization.
+    <div className="space-y-6">
+      {/* Title */}
+      <AnimatedSection animation="slide-up" delay={0} className="text-center mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2"
+            style={{ color: 'rgb(var(--text-primary))' }}>
+          Design Your Space
+        </h1>
+        <p className="text-sm max-w-md mx-auto"
+           style={{ color: 'rgb(var(--text-muted))' }}>
+          Upload your room, describe your style, and let AI create your perfect layout
         </p>
       </AnimatedSection>
 
-      {/* Input Section */}
-      <AnimatedSection animation="slide-up" delay={300} className="w-full mb-6">
-        <div className="relative rounded-xl border shadow-sm bg-white"
-             style={{ borderColor: 'rgb(var(--surface-muted))' }}>
-          <textarea
-            ref={textareaRef}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onFocus={() => setShowSuggestions(true)}
-            className="w-full min-h-[120px] resize-none p-4 rounded-xl bg-transparent border-none outline-none text-base leading-relaxed focus:ring-2 focus:ring-primary-300/50"
-            placeholder="Describe your dream room with specific details..."
-            style={{ 
-              color: 'rgb(var(--text-primary))',
-              transition: 'all 0.2s ease'
-            }}
-          />
-        </div>
-
-        {/* Design Inspiration Cards */}
-        {showSuggestions && !prompt && (
-          <div className="mt-4">
-            <p className="text-sm font-medium mb-3" style={{ color: 'rgb(var(--text-primary))' }}>
-              ✨ Popular Design Styles
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {suggestions.map((suggestion, index) => (
-                <button
-                  key={index}
-                  onClick={() => handleSuggestionClick(suggestion)}
-                  className="text-left p-4 rounded-xl border hover:shadow-md transition-all duration-200 bg-white hover:border-primary-300 group"
-                  style={{
-                    backgroundColor: 'white',
-                    borderColor: 'rgb(var(--surface-muted))'
-                  }}
-                >
-                  <div className="text-sm font-medium text-primary-800 mb-1 group-hover:text-primary-600 transition-colors"
-                       style={{ color: 'rgb(var(--primary-800))' }}>
-                    {suggestion.split(' ').slice(0, 3).join(' ')}
-                  </div>
-                  <div className="text-xs text-muted line-clamp-2"
-                       style={{ color: 'rgb(var(--text-muted))' }}>
-                    {suggestion}
-                  </div>
-                </button>
-              ))}
+      {/* Step 1: Upload Room */}
+      <AnimatedSection animation="slide-up" delay={100}>
+        <div className="card-premium flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 font-semibold"
+                 style={{ 
+                   background: hasUploadedRoom 
+                     ? 'linear-gradient(135deg, rgb(var(--primary-100)) 0%, rgb(var(--primary-50)) 100%)' 
+                     : 'linear-gradient(135deg, rgb(var(--surface-muted)) 0%, rgb(var(--surface-soft)) 100%)',
+                   color: hasUploadedRoom ? 'rgb(var(--primary-600))' : 'rgb(var(--text-muted))',
+                   boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+                 }}>
+              {hasUploadedRoom ? '✓' : '1'}
+            </div>
+            <div>
+              <p className="font-semibold text-sm" style={{ color: 'rgb(var(--text-primary))' }}>
+                Room model (USDZ)
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: 'rgb(var(--text-muted))' }}>
+                {hasUploadedRoom ? uploadedFileName : 'Required — upload your room plan'}
+              </p>
             </div>
           </div>
-        )}
-      </AnimatedSection>
-
-      {/* Action Button - no surprise, just generate */}
-      <AnimatedSection animation="slide-up" delay={500} className="w-full mb-4">
-        <div className="flex justify-center">
           <button
-            onClick={handleGenerate}
-            disabled={!prompt.trim()}
-            className={`primary-button px-8 py-3 flex items-center justify-center gap-2 font-semibold rounded-xl shadow-md hover:shadow-lg transition-all duration-200 ${
-              !prompt.trim() ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105 active:scale-95'
-            }`}
+            type="button"
+            onClick={() => onUploadClick?.()}
+            className="shrink-0 px-5 py-3 rounded-2xl text-sm font-semibold transition-all hover:scale-[1.02] active:scale-[0.98]"
+            style={{
+              background: hasUploadedRoom 
+                ? 'transparent' 
+                : 'linear-gradient(135deg, rgb(var(--primary-500)) 0%, rgb(var(--primary-600)) 100%)',
+              color: hasUploadedRoom ? 'rgb(var(--primary-600))' : 'white',
+              border: hasUploadedRoom ? '1px solid rgb(var(--primary-300))' : 'none',
+              boxShadow: hasUploadedRoom ? 'none' : '0 4px 14px rgba(var(--primary-500), 0.35)'
+            }}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="2"/>
-              <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2"/>
-            </svg>
-            <span>Generate Design</span>
+            {hasUploadedRoom ? 'Change' : 'Upload'}
           </button>
         </div>
       </AnimatedSection>
 
-      {/* Compact Status */}
-      <AnimatedSection animation="fade-in" delay={600}>
-        <div className="flex items-center justify-center gap-2 text-sm">
-          <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            <span className="text-green-600 font-medium">AI Ready</span>
+      {/* Step 2: Describe */}
+      <AnimatedSection animation="slide-up" delay={200}>
+        <div>
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 font-semibold"
+                 style={{ 
+                   background: 'linear-gradient(135deg, rgb(var(--surface-muted)) 0%, rgb(var(--surface-soft)) 100%)',
+                   color: 'rgb(var(--text-secondary))',
+                   boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+                 }}>
+              2
+            </div>
+            <div>
+              <p className="font-semibold text-sm" style={{ color: 'rgb(var(--text-primary))' }}>
+                Describe your design
+              </p>
+              <p className="text-xs" style={{ color: 'rgb(var(--text-muted))' }}>
+                Style, furniture, colors — tell us what you want
+              </p>
+            </div>
           </div>
-          <span className="text-muted" style={{ color: 'rgb(var(--text-muted))' }}>•</span>
-          <span className="text-muted text-xs" style={{ color: 'rgb(var(--text-muted))' }}>
-            12K+ designs created
-          </span>
+
+          <div
+            className="card-premium transition-all duration-200 overflow-hidden"
+            style={{
+              boxShadow: isFocused 
+                ? '0 0 0 2px rgba(var(--primary-500), 0.25), 0 8px 32px rgba(0,0,0,0.08), 0 1px 0 0 rgba(255,255,255,0.8) inset' 
+                : undefined
+            }}
+          >
+            <textarea
+              ref={textareaRef}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onFocus={() => { setIsFocused(true); setShowSuggestions(true) }}
+              onBlur={() => setIsFocused(false)}
+              placeholder="e.g. Modern Scandinavian living room with gray sectional and oak coffee table..."
+              className="w-full min-h-[100px] resize-none p-5 rounded-2xl border-0 outline-none text-[15px] leading-relaxed bg-transparent placeholder:text-gray-400"
+              style={{ color: 'rgb(var(--text-primary))' }}
+            />
+          </div>
+
+          {showSuggestions && !prompt && (
+            <div className="mt-5">
+              <p className="text-xs font-semibold mb-3 uppercase tracking-wider" style={{ color: 'rgb(var(--text-muted))' }}>
+                Quick picks
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleSuggestionClick(s)}
+                    className="card-premium px-4 py-3.5 rounded-2xl text-left text-sm transition-all hover:scale-[1.01] active:scale-[0.99] line-clamp-2"
+                    style={{ color: 'rgb(var(--text-secondary))' }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </AnimatedSection>
+
+      {/* Generate */}
+      <AnimatedSection animation="slide-up" delay={300}>
+        <div className="flex flex-col items-center gap-3 pt-2">
+          {!hasUploadedRoom && (
+            <p className="text-xs" style={{ color: 'rgb(var(--text-muted))' }}>
+              Upload room first to continue
+            </p>
+          )}
+          <button
+            onClick={handleGenerate}
+            disabled={!hasUploadedRoom || !prompt.trim()}
+            className="w-full sm:w-auto px-10 py-4 rounded-2xl font-semibold text-[15px] flex items-center justify-center gap-2.5 transition-all disabled:opacity-40 disabled:cursor-not-allowed enabled:hover:scale-[1.02] enabled:active:scale-[0.98]"
+            style={{
+              background: 'linear-gradient(135deg, rgb(var(--primary-500)) 0%, rgb(var(--primary-600)) 100%)',
+              color: 'white',
+              boxShadow: '0 8px 24px rgba(var(--primary-500), 0.4)'
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 2L2 7L12 12L22 7L12 2Z" />
+              <path d="M2 17L12 22L22 17" />
+            </svg>
+            Generate Design
+          </button>
+          <p className="text-[11px]" style={{ color: 'rgb(var(--text-muted))' }}>
+            AI Ready · 12K+ designs
+          </p>
         </div>
       </AnimatedSection>
     </div>
@@ -163,4 +206,3 @@ const DesignInput: React.FC<DesignInputProps> = ({ onGenerate }) => {
 }
 
 export default DesignInput
-
