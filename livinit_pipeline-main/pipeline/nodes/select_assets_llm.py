@@ -225,12 +225,20 @@ def select_assets_llm_node(state: dict[str, Any]) -> dict[str, Any]:
     if revision_prompt and previous_assets:
         prev_list = "\n".join(f"- {a['uid']}: {a.get('reason', '')}" for a in previous_assets)
         previous_selection_context = f"""
-PREVIOUS SELECTION (to revise):
+=== REVISION MODE ===
+PREVIOUS SELECTION (DO NOT CHANGE unless explicitly requested):
 {prev_list}
 
 USER REVISION REQUEST: {revision_prompt}
 
-Apply the user's requested changes to the previous selection. Keep items not mentioned in the revision request.
+CRITICAL REVISION RULES:
+1. ONLY modify/replace assets that the user explicitly mentions in their request
+2. PRESERVE ALL OTHER ASSETS EXACTLY as they were - same UIDs, same quantities
+3. If user says "change the sofa", only change sofa items - keep all chairs, tables, rugs, etc. unchanged
+4. If user says "add a plant", keep ALL existing items and add the plant
+5. If user says "remove the rug", remove only rug items - keep everything else
+
+Start with the PREVIOUS SELECTION as your base and make MINIMAL targeted changes.
 """
         logger.info("[ASSET SELECTOR LLM] Revision mode: %s", revision_prompt)
 

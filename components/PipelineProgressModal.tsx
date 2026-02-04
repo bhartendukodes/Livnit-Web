@@ -11,19 +11,70 @@ interface PipelineProgressModalProps {
   onClose: () => void
   onRetry: () => void
   onAbort: () => void
+  isIteration?: boolean // New prop to differentiate chat iterations from initial designs
 }
 
 const PIPELINE_STEPS = [
-  { id: 'extract_room', name: 'Analyzing Space', icon: '🏠' },
-  { id: 'select_assets', name: 'Curating Furniture', icon: '🛋️' },
-  { id: 'validate_and_cost', name: 'Checking Availability', icon: '✅' },
-  { id: 'initial_layout', name: 'First Layout', icon: '📐' },
-  { id: 'layout_preview', name: 'Preview', icon: '🖼️' },
-  { id: 'refine_layout', name: 'Refining Design', icon: '✨' },
-  { id: 'layout_preview_refine', name: 'Updating Preview', icon: '🎨' },
-  { id: 'layoutvlm', name: 'AI Optimization', icon: '🤖' },
-  { id: 'layout_preview_post', name: 'Final Preview', icon: '📸' },
-  { id: 'render_scene', name: 'Render Scene', icon: '🎬' },
+  { 
+    id: 'extract_room', 
+    name: 'Analyzing Space', 
+    iterationName: 'Loading Previous Design',
+    icon: '🏠' 
+  },
+  { 
+    id: 'select_assets', 
+    name: 'Curating Furniture', 
+    iterationName: 'Updating Furniture Selection',
+    icon: '🛋️' 
+  },
+  { 
+    id: 'validate_and_cost', 
+    name: 'Checking Availability', 
+    iterationName: 'Validating Changes',
+    icon: '✅' 
+  },
+  { 
+    id: 'initial_layout', 
+    name: 'First Layout', 
+    iterationName: 'Updating Layout',
+    icon: '📐' 
+  },
+  { 
+    id: 'layout_preview', 
+    name: 'Preview', 
+    iterationName: 'Generating Preview',
+    icon: '🖼️' 
+  },
+  { 
+    id: 'refine_layout', 
+    name: 'Refining Design', 
+    iterationName: 'Applying Your Changes',
+    icon: '✨' 
+  },
+  { 
+    id: 'layout_preview_refine', 
+    name: 'Updating Preview', 
+    iterationName: 'Updating Preview',
+    icon: '🎨' 
+  },
+  { 
+    id: 'layoutvlm', 
+    name: 'AI Optimization', 
+    iterationName: 'AI Re-optimization',
+    icon: '🤖' 
+  },
+  { 
+    id: 'layout_preview_post', 
+    name: 'Final Preview', 
+    iterationName: 'Final Preview',
+    icon: '📸' 
+  },
+  { 
+    id: 'render_scene', 
+    name: 'Render Scene', 
+    iterationName: 'Rendering Updated Design',
+    icon: '🎬' 
+  },
 ]
 
 const PipelineProgressModal: React.FC<PipelineProgressModalProps> = ({
@@ -33,7 +84,8 @@ const PipelineProgressModal: React.FC<PipelineProgressModalProps> = ({
   error,
   onClose,
   onRetry,
-  onAbort
+  onAbort,
+  isIteration = false
 }) => {
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
   const [displayPercent, setDisplayPercent] = useState(0)
@@ -130,18 +182,25 @@ const PipelineProgressModal: React.FC<PipelineProgressModalProps> = ({
               style={{ backgroundColor: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(8px)' }}
             >
               <span className="text-3xl">
-                {status === 'completed' ? '🎉' : status === 'error' ? '😔' : currentStep.icon}
+                {status === 'completed' ? '🎉' : 
+                 status === 'error' ? (error && (error.includes('Network') || error.includes('connection')) ? '📡' : '😔') : 
+                 currentStep.icon}
               </span>
             </div>
             <h2 className="text-xl font-bold text-white">
-              {status === 'uploading' && 'Uploading...'}
-              {status === 'running' && 'Creating Design'}
-              {status === 'completed' && 'All Done!'}
-              {status === 'error' && 'Something Went Wrong'}
+              {status === 'uploading' && 'Uploading Room...'}
+              {status === 'running' && (isIteration ? 'Updating Your Design' : 'Creating Your Design')}
+              {status === 'completed' && (isIteration ? 'Design Updated!' : 'Design Complete!')}
+              {status === 'error' && (error && (error.includes('Network') || error.includes('connection')) ? 'Connection Issue' : 'Something Went Wrong')}
               {status === 'aborted' && 'Cancelled'}
             </h2>
             {status === 'running' && (
-              <p className="text-white/80 text-sm mt-1">{currentStep.name}</p>
+              <p className="text-white/80 text-sm mt-1">
+                {isIteration 
+                  ? 'Please wait, your room design is being updated according to your chat...'
+                  : currentStep.name
+                }
+              </p>
             )}
           </div>
         </div>
@@ -152,8 +211,11 @@ const PipelineProgressModal: React.FC<PipelineProgressModalProps> = ({
           <div className="mb-6">
             <div className="flex justify-between text-sm mb-2">
               <span className="font-medium" style={{ color: 'rgb(var(--text-primary))' }}>
-                {status === 'running' && `Step ${completedCount + 1} of ${totalNodes}`}
-                {status === 'completed' && 'Your design is ready'}
+                {status === 'running' && (isIteration 
+                  ? `Updating... Step ${completedCount + 1} of ${totalNodes}`
+                  : `Step ${completedCount + 1} of ${totalNodes}`
+                )}
+                {status === 'completed' && (isIteration ? 'Your design has been updated' : 'Your design is ready')}
                 {status === 'error' && 'Please try again'}
               </span>
               <span className="font-bold tabular-nums" style={{ color: 'rgb(var(--primary-600))' }}>
@@ -215,7 +277,7 @@ const PipelineProgressModal: React.FC<PipelineProgressModalProps> = ({
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <path d="M20 6L9 17L4 12" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
-                      {step.name}
+                      {isIteration && step.iterationName ? step.iterationName : step.name}
                     </span>
                   ) : null
                 })}
@@ -225,12 +287,32 @@ const PipelineProgressModal: React.FC<PipelineProgressModalProps> = ({
 
           {/* Error */}
           {status === 'error' && error && (
-            <div 
-              className="mb-5 p-4 rounded-2xl"
-              style={{ backgroundColor: 'rgb(254 242 242)', border: '1px solid rgb(254 202 202)' }}
-            >
-              <p className="text-red-700 text-sm">{error}</p>
-            </div>
+            <>
+              <div 
+                className="mb-4 p-4 rounded-2xl"
+                style={{ backgroundColor: 'rgb(254 242 242)', border: '1px solid rgb(254 202 202)' }}
+              >
+                <p className="text-red-700 text-sm">{error}</p>
+              </div>
+              
+              {/* Network-specific guidance */}
+              {(error.includes('Network') || error.includes('connection')) && (
+                <div 
+                  className="mb-4 p-4 rounded-2xl"
+                  style={{ backgroundColor: 'rgb(239 246 255)', border: '1px solid rgb(191 219 254)' }}
+                >
+                  <div className="text-blue-800">
+                    <div className="font-medium mb-2 text-sm">💡 Network troubleshooting:</div>
+                    <ul className="space-y-1 text-xs">
+                      <li>• Check your internet connection</li>
+                      <li>• Try moving closer to your router</li>
+                      <li>• Disable VPN if active</li>
+                      <li>• Use a smaller USDZ file (&lt;10MB)</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {/* Success */}

@@ -17,35 +17,59 @@ export async function GET(
       )
     }
 
-    // Fetch from backend API
+    // Fetch from backend API (backend may redirect to Supabase or serve local file)
     const backendUrl = `${API_BASE_URL}/download/glb/${runDir}`
-    console.log('📥 API Route: Proxying GLB download from:', backendUrl)
+    console.log('📥 GLB Route: Fetching from backend:', backendUrl)
     
     const response = await fetch(backendUrl, {
       method: 'GET',
       headers: {
         'Accept': 'model/gltf-binary, application/octet-stream, */*',
-        'User-Agent': 'Livinit-Web/1.0',
+        'User-Agent': 'Livinit-Web-GLB/1.0',
       },
+      redirect: 'follow', // Follow 307 redirect to Supabase
+      timeout: 30000, // 30 second timeout
     })
 
-    console.log('📊 Backend GLB response status:', response.status, response.statusText)
-    console.log('📊 Backend GLB response headers:', Object.fromEntries(response.headers.entries()))
+    console.log('📊 GLB Route: Backend response:', {
+      status: response.status,
+      statusText: response.statusText,
+      headers: Object.fromEntries(response.headers.entries()),
+      url: response.url,
+      redirected: response.redirected
+    })
 
     if (!response.ok) {
-      console.error('❌ Backend GLB responded with error:', response.status, response.statusText)
+      console.error('❌ GLB Route: Backend error:', response.status, response.statusText)
       const errorText = await response.text()
-      console.error('❌ Backend GLB error body:', errorText)
+      console.error('❌ GLB Route: Error body:', errorText.slice(0, 1000))
       
-      let errorData
+      // Check if this is a 404 - GLB might not be generated yet
+      if (response.status === 404) {
+        console.log('🔍 GLB Route: 404 - GLB file not found, possibly not generated yet')
+        return NextResponse.json(
+          { 
+            detail: 'GLB file not found - may still be generating or export_glb was not enabled',
+            code: 'GLB_NOT_FOUND',
+            runDir: runDir 
+          },
+          { status: 404 }
+        )
+      }
+      
+      let errorData: { detail?: string }
       try {
-        errorData = JSON.parse(errorText)
+        errorData = errorText ? JSON.parse(errorText) : {}
       } catch {
-        errorData = { detail: errorText || `Backend GLB download failed with status ${response.status}` }
+        errorData = { detail: errorText || `Backend returned ${response.status}` }
       }
       
       return NextResponse.json(
-        errorData,
+        { 
+          detail: errorData.detail || `GLB download failed (${response.status})`,
+          runDir: runDir,
+          backendStatus: response.status
+        },
         { status: response.status }
       )
     }

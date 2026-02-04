@@ -189,10 +189,10 @@ where D: 0=-Y, 1=+X, 2=+Y, 3=-X
 
 SOLVER API:
 - solver.against_wall(asset, walls[i]) - asset touches wall i
-- solver.distance_constraint(a1, a2, min, max, weight=1) - distance range between assets
 - solver.on_top_of(a1, a2) - stack a1 on a2
 - solver.align_with(a1, a2, angle=0) - parallel (0) or opposite (180) orientation
 - solver.point_towards(a1, a2) - a1 faces a2
+- solver.distance_constraint(a1, a2, min, max, weight=1) - distance range between assets
 
 REQUIREMENTS:
 - Fix all detected issues (overlaps, boundary violations, door blockages)
@@ -200,6 +200,7 @@ REQUIREMENTS:
 - Keep 0.5m+ clearance from doors
 - Use exact UIDs from ASSETS list
 - No redundant constraints (e.g. both point_towards(a,b) and point_towards(b,a))
+- CRITICAL: constraint_program MUST include at least one constraint for EVERY asset listed above. No asset should be left without constraints.
 
 Use your interior design expertise to create a functional, aesthetically pleasing layout that matches the design intent. Consider traffic flow, focal points, conversation areas, and proper furniture relationships.
 

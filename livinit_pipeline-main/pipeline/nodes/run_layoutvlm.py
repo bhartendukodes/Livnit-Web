@@ -361,7 +361,7 @@ class GradientSolver:
                 elif not a.onCeiling:
                     a.position[2] = a.size[2] / 2
 
-    def optimize(self, assets, constraints, iterations=200, lr=0.02):
+    def optimize(self, assets, constraints, iterations=200, lr=0.01):
         self.frames = []
         if not assets:
             return {}
@@ -392,6 +392,7 @@ class GradientSolver:
                     include_void = any(id.startswith("void_") for id in iids)
                     if (c.name == "distance_constraint" or c.name == "on_top_of") and not include_void:
                         continue
+
                     objs = [assets[x] for x in iids if x in assets]
                     if len(objs) == 2:
                         closs = closs + c.evaluate(objs, self.device)

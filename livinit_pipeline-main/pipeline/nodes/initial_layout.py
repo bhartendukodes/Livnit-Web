@@ -34,6 +34,10 @@ def generate_initial_layout_node(state: dict[str, Any]) -> dict[str, Any]:
     room_vertices = state.get("room_vertices", [[0, 0], [room_width, 0], [room_width, room_depth], [0, room_depth]])
     user_intent = state.get("user_intent", "Modern living room")
 
+    # Iteration mode: check for previous layout
+    previous_layout = state.get("initial_layout") or {}
+    is_revision = bool(state.get("asset_revision_prompt")) and previous_layout
+
     asset_lines = [
         f"- {a['uid']} ({a.get('category', 'unknown')}), {a.get('width', 0):.2f}x{a.get('depth', 0):.2f}x{a.get('height', 0):.2f}m, frontView={a.get('frontView', 0)}"
         for a in selected_assets
@@ -47,11 +51,43 @@ def generate_initial_layout_node(state: dict[str, Any]) -> dict[str, Any]:
     for i, v in enumerate(state.get("room_voids", [])):
         void_lines.append(f"- void-{i}: center={v['center']}, width={v['width']:.2f}m, depth={v['depth']:.2f}m")
 
+    # Build revision context if applicable
+    revision_context = ""
+    if is_revision:
+        # Find assets that exist in previous layout
+        prev_uids = set(previous_layout.keys())
+        current_uids = {a["uid"] for a in selected_assets}
+        unchanged_uids = prev_uids & current_uids
+        new_uids = current_uids - prev_uids
+        removed_uids = prev_uids - current_uids
+
+        prev_layout_lines = [f"- {uid}: position={v.get('position')}, rotation={v.get('rotation')}" for uid, v in previous_layout.items() if uid in unchanged_uids]
+        new_asset_lines = [f"- {uid}" for uid in new_uids]
+        revision_context = f"""
+=== ITERATION MODE (ASSET SWAP) ===
+User requested: {state.get('asset_revision_prompt', '')}
+
+PREVIOUS LAYOUT (copy EXACT values for assets that remain):
+{chr(10).join(prev_layout_lines) if prev_layout_lines else "None"}
+
+NEW ASSETS TO PLACE:
+{chr(10).join(new_asset_lines) if new_asset_lines else "None"}
+
+REMOVED ASSETS: {list(removed_uids) if removed_uids else "None"}
+
+CRITICAL RULES FOR ITERATION:
+1. For unchanged assets: COPY the exact position and rotation values above - do NOT modify them
+2. For new assets replacing removed ones: place in similar location to the removed asset of same category
+3. Only compute fresh positions for truly new asset categories
+"""
+        logger.info("[INITIAL LAYOUT] Iteration mode: %d unchanged, %d new, %d removed", len(unchanged_uids), len(new_uids), len(removed_uids))
+
     # Build example using first asset
     example_uid = selected_assets[0]["uid"] if selected_assets else "asset_1"
     example_cat = selected_assets[0].get("category", "furniture") if selected_assets else "furniture"
 
     prompt = f"""You are an expert interior designer creating a 2D furniture layout.
+{revision_context}
 
 COORDINATE SYSTEM:
 - Origin (0,0) at bottom-left corner
@@ -99,11 +135,14 @@ OUTPUT (JSON array ordered bottom-to-top for correct rendering):
     stage = STAGE_DIRS["initial_layout"]
     manager.write_text(stage, "prompt.txt", prompt)
 
+    # Build contents - no image needed for iteration, JSON layout positions are passed in prompt
+    contents = [types.Part.from_text(text=prompt)]
+
     allowed_uids = {a["uid"] for a in selected_assets}
 
     for attempt in range(3):
         start = time.perf_counter()
-        resp = client.models.generate_content(model="gemini-3-flash-preview", contents=prompt, config=INITIAL_LAYOUT_CONFIG)
+        resp = client.models.generate_content(model="gemini-3-flash-preview", contents=contents, config=INITIAL_LAYOUT_CONFIG)
         log_duration("INITIAL LAYOUT", start, resp.usage_metadata)
 
         layout = json.loads(resp.text)
@@ -117,7 +156,7 @@ OUTPUT (JSON array ordered bottom-to-top for correct rendering):
 
         if attempt < 2:
             logger.warning("[INITIAL LAYOUT] Retry %d: missing %s", attempt + 1, missing)
-            prompt += f"\n\nMISSING: {', '.join(missing)}. Include ALL assets!"
+            contents[0] = types.Part.from_text(text=contents[0].text + f"\n\nMISSING: {', '.join(missing)}. Include ALL assets!")
         else:
             raise ValueError(f"Missing placements: {missing}")
 

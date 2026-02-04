@@ -9,6 +9,7 @@ import DesignInput from '@/components/DesignInput'
 import FileUploadModal from '@/components/FileUploadModal'
 import PipelineProgressModal from '@/components/PipelineProgressModal'
 import AnimatedSection from '@/components/AnimatedSection'
+import NetworkStatus from '@/components/NetworkStatus'
 import { usePipeline } from '@/hooks/usePipeline'
 
 export default function Home() {
@@ -33,10 +34,13 @@ export default function Home() {
     isDownloadingAssets,
     downloadProgress,
     uploadAndRunPipeline,
+    iterateDesign,
     downloadFinalUSDZ,
     retryPipeline,
     abortPipeline,
-    reset: resetPipeline
+    reset: resetPipeline,
+    currentOutputId,
+    canIterate
   } = usePipeline()
 
   // Auto-navigate to result when pipeline completes (no modal prompt)
@@ -183,6 +187,7 @@ export default function Home() {
                       onDownloadUSDZ={downloadFinalUSDZ}
                       isDownloadingAssets={isDownloadingAssets}
                       downloadProgress={downloadProgress}
+                      status={pipelineStatus}
                     />
                   </div>
                 </div>
@@ -196,6 +201,8 @@ export default function Home() {
                     initialMessage={userPrompt}
                     pipelineResult={pipelineResult}
                     onDownloadUSDZ={downloadFinalUSDZ}
+                    canIterate={canIterate}
+                    onIterate={iterateDesign}
                   />
                 </div>
               </div>
@@ -223,7 +230,11 @@ export default function Home() {
         onClose={() => {}}
         onRetry={retryPipeline}
         onAbort={abortPipeline}
+        isIteration={canIterate && pipelineResult !== null} // Show iteration UI if we're in chat mode
       />
+      
+      {/* Network Status Indicator */}
+      <NetworkStatus />
       
     </div>
   )

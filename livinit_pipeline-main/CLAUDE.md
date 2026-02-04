@@ -8,4 +8,4 @@
 - dont create helper if it can be one line inline to make code easier to follow.
 - while you at it: clean obsoletes or over engineered code and consolidate duplicated code
 - do not commit by yourself
-- when you use read, always read whole file.
+- always read whole file when you invoke read.

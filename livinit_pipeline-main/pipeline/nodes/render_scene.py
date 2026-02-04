@@ -152,52 +152,55 @@ def setup_lighting(center, max_z):
     fill.location = (center.x - 5, center.y - 5, max_z + 3)
 
 
-def setup_render(resolution=1024, samples=32):
+def _configure_cycles(scene, samples, device="GPU"):
+    """Configure Cycles render settings (shared between GPU and CPU)."""
+    scene.render.engine = "CYCLES"
+    scene.cycles.device = device
+    scene.cycles.samples = samples
+    scene.cycles.denoiser = "OPENIMAGEDENOISE"
+    scene.cycles.use_adaptive_sampling = True
+    scene.cycles.adaptive_threshold = 0.1
+    scene.cycles.max_bounces = 4 if samples > 16 else 2
+    scene.cycles.diffuse_bounces = 2 if samples > 16 else 1
+    scene.cycles.glossy_bounces = 2 if samples > 16 else 1
+    scene.cycles.transmission_bounces = 2 if samples > 16 else 1
+    scene.cycles.transparent_max_bounces = 2
+    scene.cycles.volume_bounces = 0
+    scene.render.use_persistent_data = True
+
+
+def setup_render(resolution=1024, samples=32, use_eevee=False):
     scene = bpy.context.scene
 
     # Auto-detect GPU and choose engine accordingly
-    gpu_backend = None
     prefs = bpy.context.preferences.addons["cycles"].preferences
     for backend in ("METAL", "CUDA", "OPTIX", "HIP"):
         try:
             prefs.compute_device_type = backend
             prefs.get_devices()
             if any(d.type != "CPU" for d in prefs.devices):
-                gpu_backend = backend
+                for dev in prefs.devices:
+                    dev.use = True
+                _configure_cycles(scene, samples, device="GPU")
+                print(f"[RENDER] Using CYCLES with GPU ({backend})")
                 break
         except:
             continue
-
-    if gpu_backend:
-        # CYCLES with GPU
-        scene.render.engine = "CYCLES"
-        for dev in prefs.devices:
-            dev.use = True
-        scene.cycles.device = "GPU"
-        scene.cycles.samples = samples
-        scene.cycles.use_denoising = True
-        scene.cycles.denoiser = "OPENIMAGEDENOISE"
-        scene.cycles.use_adaptive_sampling = True
-        scene.cycles.adaptive_threshold = 0.1
-        scene.cycles.max_bounces = 4 if samples > 16 else 2
-        scene.cycles.diffuse_bounces = 2 if samples > 16 else 1
-        scene.cycles.glossy_bounces = 2 if samples > 16 else 1
-        scene.cycles.transmission_bounces = 2 if samples > 16 else 1
-        scene.cycles.transparent_max_bounces = 2
-        scene.cycles.volume_bounces = 0
-        scene.render.use_persistent_data = True
-        print(f"[RENDER] Using CYCLES with GPU ({gpu_backend})")
     else:
-        # EEVEE fallback when no GPU
-        try:
-            scene.render.engine = "BLENDER_EEVEE_NEXT"
-        except:
-            scene.render.engine = "BLENDER_EEVEE"
-        scene.eevee.taa_render_samples = min(samples, 16)
-        scene.eevee.use_gtao = True
-        scene.eevee.use_ssr = False
-        scene.eevee.use_bloom = False
-        print("[RENDER] No GPU found, using EEVEE")
+        if use_eevee:
+            # EEVEE - fast rasterization, good for low-end hardware
+            try:
+                scene.render.engine = "BLENDER_EEVEE_NEXT"
+            except:
+                scene.render.engine = "BLENDER_EEVEE"
+                scene.eevee.taa_render_samples = min(samples, 16)
+                scene.eevee.use_gtao = True
+                scene.eevee.use_ssr = False  # disable for speed
+                scene.eevee.use_bloom = False
+            print("[RENDER] Using EEVEE")
+        else:
+            _configure_cycles(scene, samples, device="CPU")
+            print("[RENDER] Using CYCLES CPU")
 
     scene.render.resolution_x = resolution
     scene.render.resolution_y = resolution
@@ -294,6 +297,7 @@ def main():
     # Place assets
     layout = data.get("layout", {})
     assets_dir = data.get("assets_dir", "")
+    selected_assets = data.get("selected_assets", {})
 
     for idx, (uid, props) in enumerate(layout.items(), 1):
         if uid.startswith("void"):
@@ -331,6 +335,13 @@ def main():
         # Get position and rotation from layout
         pos = list(props.get("position", [0, 0, 0]))
         rot = props.get("rotation", [0, 0, 0])
+
+        # Apply center offset from metadata if available
+        metadata = selected_assets.get(uid, {}) or selected_assets.get(folder_name, {})
+        center_blender_offset = metadata.get("center", [0, 0, 0])
+        pos[0] -= center_blender_offset[0]
+        pos[1] -= center_blender_offset[1]
+
         place_asset(root, pos, rot, floor_z, offset_x, offset_y, center_x, center_y, rotation_y)
         lift_to_floor(root, floor_z)
 
@@ -343,6 +354,7 @@ def main():
     setup_render(
         resolution=data.get("resolution", 1024),
         samples=data.get("samples", 32),
+        use_eevee=data.get("use_eevee", False),
     )
 
     os.makedirs(data["output_dir"], exist_ok=True)
@@ -394,7 +406,8 @@ def render_scene_node(
     state: dict[str, Any],
     resolution: int = 1024,
     samples: int = 32,
-    low_quality: bool = False,
+    use_eevee: bool = False,
+    low_quality: bool = True,
     floor_texture: dict | None = None,
     export_glb: bool = False,
 ) -> dict[str, Any]:
@@ -408,7 +421,7 @@ def render_scene_node(
         floor_texture: {"color": [r,g,b], "roughness": float}. Set False to disable.
     """
     if low_quality:
-        resolution, samples = 512, 8
+        resolution, samples, use_eevee = 512, 8, False
     start = time.perf_counter()
 
     layout = state.get("layoutvlm_layout") or state.get("initial_layout")
@@ -427,6 +440,7 @@ def render_scene_node(
         "room_area": state.get("room_area"),
         "resolution": resolution,
         "samples": samples,
+        "use_eevee": use_eevee,
         "floor_texture": floor_texture,
         "render_perspective": True,
         "export_usdz": True,

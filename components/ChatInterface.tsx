@@ -8,11 +8,15 @@ interface ChatInterfaceProps {
   initialMessage?: string
   pipelineResult?: PipelineResult | null
   onDownloadUSDZ?: () => void
+  canIterate?: boolean
+  onIterate?: (userIntent: string) => Promise<void>
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
   initialMessage = '', 
-  pipelineResult
+  pipelineResult,
+  canIterate = false,
+  onIterate
 }) => {
   const [message, setMessage] = useState('')
   const [chatHistory, setChatHistory] = useState<Array<{ type: 'user' | 'ai'; text: string; timestamp: Date }>>([])
@@ -42,25 +46,48 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     setIsTyping(true)
     setTimeout(() => {
-      const aiMessage = `🎉 Perfect! I've crafted a beautiful design for your space featuring ${pipelineResult.selected_uids.length} carefully selected pieces. The total investment comes to $${pipelineResult.total_cost.toFixed(2)}. 
+      const itemCount = pipelineResult.selected_assets?.length || pipelineResult.selected_uids?.length || 0
+      const cost = pipelineResult.total_cost || 0
+      
+      const aiMessage = `🎉 Perfect! I've crafted a beautiful design for your space featuring ${itemCount} carefully selected pieces. The total investment comes to $${cost.toFixed(2)}. 
 
-Your design includes optimized furniture placement, realistic 3D visualization, and direct shopping links. Ready to bring your vision to life?`
+Your design includes optimized furniture placement, realistic 3D visualization, and direct shopping links. ${canIterate ? 'You can ask me to modify anything - just describe what you\'d like to change!' : 'Ready to bring your vision to life?'}`
+      
       setChatHistory(prev => [...prev, { type: 'ai', text: aiMessage, timestamp: new Date() }])
       setIsTyping(false)
     }, 2000)
-  }, [pipelineResult])
+  }, [pipelineResult, canIterate])
 
-  const handleSend = () => {
-    if (message.trim()) {
-      setChatHistory(prev => [...prev, { type: 'user', text: message, timestamp: new Date() }])
-      setMessage('')
-      
-      // Simulate AI response
+  const handleSend = async () => {
+    if (!message.trim()) return
+    
+    const userMessage = message.trim()
+    setChatHistory(prev => [...prev, { type: 'user', text: userMessage, timestamp: new Date() }])
+    setMessage('')
+    
+    // If can iterate (have output_id), use iteration API
+    if (canIterate && onIterate) {
+      setIsTyping(true)
+      try {
+        console.log('🔄 Iterating design with message:', userMessage)
+        await onIterate(userMessage)
+        // Pipeline will handle the response via the existing handlePipelineEvent
+      } catch (error) {
+        console.error('❌ Iteration failed:', error)
+        setChatHistory(prev => [...prev, { 
+          type: 'ai', 
+          text: "Sorry, I couldn't process that change right now. Please try again or be more specific about what you'd like to modify.", 
+          timestamp: new Date() 
+        }])
+        setIsTyping(false)
+      }
+    } else {
+      // Fallback: informational response
       setIsTyping(true)
       setTimeout(() => {
         setChatHistory(prev => [...prev, { 
           type: 'ai', 
-          text: "Thanks for your message! I&apos;m here to help you with any questions about your room design or furniture choices. What would you like to explore?", 
+          text: "Thanks for your message! I can help you modify this design once it's complete. What would you like to change?", 
           timestamp: new Date() 
         }])
         setIsTyping(false)
@@ -158,10 +185,15 @@ Your design includes optimized furniture placement, realistic 3D visualization, 
                   </div>
                   <div className="rounded-2xl rounded-bl-md px-4 py-3 shadow-sm border"
                        style={{ backgroundColor: 'rgb(var(--surface-soft))', borderColor: 'rgb(var(--surface-muted))' }}>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgb(var(--primary-400))', animationDelay: '0ms' }} />
-                      <span className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgb(var(--primary-400))', animationDelay: '150ms' }} />
-                      <span className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgb(var(--primary-400))', animationDelay: '300ms' }} />
+                    <div className="flex items-center gap-3">
+                      <div className="flex gap-1.5">
+                        <span className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgb(var(--primary-400))', animationDelay: '0ms' }} />
+                        <span className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgb(var(--primary-400))', animationDelay: '150ms' }} />
+                        <span className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgb(var(--primary-400))', animationDelay: '300ms' }} />
+                      </div>
+                      <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
+                        {canIterate ? 'Processing your changes...' : 'Your room design is being prepared...'}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -184,7 +216,7 @@ Your design includes optimized furniture placement, realistic 3D visualization, 
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Ask me anything..."
+            placeholder={canIterate ? "Ask me to change anything..." : "Ask me anything..."}
             className="flex-1 bg-transparent outline-none text-sm py-1 placeholder:text-muted"
             style={{ color: 'rgb(var(--text-primary))' }}
           />

@@ -23,6 +23,7 @@ interface RoomViewProps {
   onDownloadUSDZ?: () => Promise<void>
   isDownloadingAssets?: boolean
   downloadProgress?: number
+  status?: 'idle' | 'uploading' | 'running' | 'completed' | 'error' | 'aborted'
 }
 
 const RoomView: React.FC<RoomViewProps> = ({ 
@@ -36,7 +37,8 @@ const RoomView: React.FC<RoomViewProps> = ({
   pipelineResult,
   onDownloadUSDZ,
   isDownloadingAssets,
-  downloadProgress
+  downloadProgress,
+  status
 }) => {
   // Track GLB loading status
   const [isGlbLoading, setIsGlbLoading] = useState(false)
@@ -102,7 +104,7 @@ const RoomView: React.FC<RoomViewProps> = ({
             <div className="text-sm text-gray-600 mt-2">{downloadProgress}%</div>
           </div>
         </div>
-      ) : pipelineResult ? (
+      ) : (pipelineResult || status === 'completed') ? (
         <div className="relative w-full flex-1 min-h-[80vh] bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center rounded-lg">
           <div className="text-center text-gray-600">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"></div>

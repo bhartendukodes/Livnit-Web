@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 import json
 from mangum import Mangum
@@ -18,7 +18,8 @@ from pipeline.core.pipeline_shared import STAGE_DIRS
 from pipeline.nodes.init_vector_store import init_vector_store_node
 from pipeline.nodes.rag_scope_assets import rag_scope_assets_node
 from pipeline.nodes.select_assets_llm import select_assets_llm_node
-from pipeline.nodes.download_assets import sync_assets_node, download_room_usdz
+from pipeline.nodes.download_assets import sync_assets_node
+from pipeline import supabase
 from pipeline.nodes.render_topdown import render_topdown_node
 from pipeline.nodes.validate_and_cost import validate_and_cost_node
 from pipeline.nodes.layout_preview import layout_preview_node
@@ -76,10 +77,15 @@ class PipelineRequest(BaseModel):
         ge=0,
         json_schema_extra={"examples": [2500.0, 5000.0, 10000.0]}
     )
-    usdz_path: str = Field(
-        default="dataset/room/Project-2510280721.usdz",
-        description="Path to room USDZ file (local or S3)",
-        json_schema_extra={"examples": ["dataset/room/Project-2510280721.usdz", "s3://bucket/room.usdz"]}
+    usdz_path: str | None = Field(
+        default=None,
+        description="Room ID (UUID) or filename to load from Supabase. Required unless output_id is provided.",
+        json_schema_extra={"examples": ["Project-2510280721.usdz", "550e8400-e29b-41d4-a716-446655440000"]}
+    )
+    output_id: str | None = Field(
+        default=None,
+        description="Output ID from a previous pipeline run to iterate on. When provided, loads previous assets and room. Use user_intent to describe changes.",
+        json_schema_extra={"examples": ["a1b2c3d4-5678-90ab-cdef-1234567890ab"]}
     )
     run_rag_scope: bool = Field(default=False, description="Run RAG-based scoping of assets by user intent")
     run_select_assets: bool = Field(default=True, description="Run RAG-based asset selection (disable to use mock assets)")
@@ -88,33 +94,11 @@ class PipelineRequest(BaseModel):
     run_layoutvlm: bool = Field(default=True, description="Run VLM-based layout optimization solver")
     run_render_scene: bool = Field(default=True, description="Render final USDZ scene with assets")
     export_glb: bool = Field(default=False, description="Export GLB file in addition to USDZ")
-    pause_for_review: bool = Field(default=False, description="Pause after initial layout. Sends review_pause event with selected_assets and layout_preview_path. Resume via POST /pipeline/resume with optional revision_prompt.")
-
-    model_config = {"json_schema_extra": {"examples": [{"user_intent": "Modern minimalist living room", "budget": 5000.0, "usdz_path": "dataset/room/Project-2510280721.usdz", "run_select_assets": True, "run_initial_layout": True, "run_refine_layout": True, "run_layoutvlm": True, "run_render_scene": True, "export_glb": False}]}}
-
-
-class ResumeRequest(BaseModel):
-    """Request body for resuming a paused pipeline with optional asset revision."""
-    run_dir: str = Field(
-        description="Run directory name from the paused pipeline (from review_pause event)",
-        json_schema_extra={"examples": ["20260109_142522"]}
-    )
-    revision_prompt: str | None = Field(
-        default=None,
-        description="Natural language instruction to modify asset selection. When provided, re-runs select_assets with the revision context.",
-        json_schema_extra={"examples": [
-            "change the sofa to a green one",
-            "remove the floor lamp",
-            "use a smaller coffee table",
-            "add a reading chair near the window"
-        ]}
-    )
-    export_glb: bool = Field(default=False, description="Export GLB file in addition to USDZ")
+    upload_to_supabase: bool = Field(default=True, description="Upload output to Supabase storage")
 
     model_config = {"json_schema_extra": {"examples": [
-        {"run_dir": "20260109_142522"},
-        {"run_dir": "20260109_142522", "revision_prompt": "change the sofa to a green velvet one"},
-        {"run_dir": "20260109_142522", "export_glb": True}
+        {"user_intent": "Modern minimalist living room", "budget": 5000.0, "usdz_path": "Project-2510280721.usdz"},
+        {"output_id": "a1b2c3d4-5678-90ab-cdef-1234567890ab", "user_intent": "change the sofa to green"}
     ]}}
 
 
@@ -191,19 +175,20 @@ async def serve_ui():
     return FileResponse(FRONTEND_DIR / "index.html")
 
 
-def create_run_context(usdz_path: str) -> AssetManager:
+def create_run_context() -> AssetManager:
     if not USD_AVAILABLE:
         raise HTTPException(status_code=501, detail="Full pipeline requires usd-core (not available in Docker). Use /nodes endpoints with mock data.")
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     return AssetManager(Path("runs") / timestamp)
 
 
-def build_initial_state(req: PipelineRequest, manager: AssetManager) -> dict[str, Any]:
+def build_initial_state(req: PipelineRequest, manager: AssetManager, room_id: str) -> dict[str, Any]:
     return {
         "run_dir": str(manager.run_dir),
         "asset_manager": manager,
         "user_intent": req.user_intent,
         "usdz_path": req.usdz_path,
+        "room_id": room_id,
         "budget": req.budget,
         "selected_assets": [],
         "selected_uids": [],
@@ -223,45 +208,33 @@ def build_initial_state(req: PipelineRequest, manager: AssetManager) -> dict[str
     }
 
 
-def build_nodes(req: PipelineRequest, phase: str = "full") -> dict:
-    """Build node list based on request parameters.
-
-    phase: "full" for complete pipeline, "before_review" for up to layout_preview, "after_review" for rest
-    """
+def build_nodes(req: PipelineRequest) -> dict:
+    """Build node list based on request parameters."""
     nodes = {}
-
-    if phase in ("full", "before_review"):
-        if USD_AVAILABLE:
-            nodes["extract_room"] = extract_room_node
-        if req.run_rag_scope:
-            nodes["rag_scope_assets"] = rag_scope_assets_node
-        if req.run_select_assets:
-            nodes["select_assets"] = select_assets_llm_node
-            nodes["validate_and_cost"] = validate_and_cost_node
-        if req.run_initial_layout:
-            nodes["initial_layout"] = generate_initial_layout_node
-        nodes["layout_preview"] = lambda state: layout_preview_node(state, "layout_preview_path", "layout_preview.png", "initial_layout")
-
-    if phase in ("full", "after_review"):
-        if req.run_refine_layout:
-            nodes["refine_layout"] = refine_layout_node
-            nodes["layout_preview_refine"] = lambda state: layout_preview_node(state, "layout_preview_refine_path", "layout_preview_refine.png", "refined_layout")
-        if USD_AVAILABLE and req.run_layoutvlm:
-            nodes["layoutvlm"] = run_layoutvlm_node
-            nodes["layout_preview_post"] = lambda state: layout_preview_node(state, "layout_preview_post_path", "layout_preview_post.png", "layoutvlm_layout")
-        if USD_AVAILABLE and req.run_render_scene:
-            nodes["render_scene"] = lambda state, glb=req.export_glb: render_scene_node(state, export_glb=glb)
-
+    if USD_AVAILABLE:
+        nodes["extract_room"] = extract_room_node
+    if req.run_rag_scope:
+        nodes["rag_scope_assets"] = rag_scope_assets_node
+    if req.run_select_assets:
+        nodes["select_assets"] = select_assets_llm_node
+        nodes["validate_and_cost"] = validate_and_cost_node
+    if req.run_initial_layout:
+        nodes["initial_layout"] = generate_initial_layout_node
+    nodes["layout_preview"] = lambda state: layout_preview_node(state, "layout_preview_path", "layout_preview.png", "initial_layout")
+    if req.run_refine_layout:
+        nodes["refine_layout"] = refine_layout_node
+        nodes["layout_preview_refine"] = lambda state: layout_preview_node(state, "layout_preview_refine_path", "layout_preview_refine.png", "refined_layout")
+    if USD_AVAILABLE and req.run_layoutvlm:
+        nodes["layoutvlm"] = run_layoutvlm_node
+        nodes["layout_preview_post"] = lambda state: layout_preview_node(state, "layout_preview_post_path", "layout_preview_post.png", "layoutvlm_layout")
+    if USD_AVAILABLE and req.run_render_scene:
+        nodes["render_scene"] = lambda state, glb=req.export_glb: render_scene_node(state, export_glb=glb)
     return nodes
 
 
-# In-memory store for paused pipeline states (in production, use Redis or similar)
-_paused_pipelines: dict[str, dict] = {}
-
-
-async def pipeline_stream_generator(req: PipelineRequest, phase: str = "full", resume_state: dict | None = None):
+async def pipeline_stream_generator(req: PipelineRequest):
     """Generator that yields SSE events for pipeline progress."""
-    pipeline_nodes = build_nodes(req, phase)
+    pipeline_nodes = build_nodes(req)
     node_names = list(pipeline_nodes.keys())
     logger.info("=" * 60)
     logger.info("Pipeline starting")
@@ -286,21 +259,15 @@ async def pipeline_stream_generator(req: PipelineRequest, phase: str = "full", r
     progress_queue: asyncio.Queue = asyncio.Queue()
 
     try:
-        if resume_state:
-            # Resuming from paused state
-            state = resume_state
-            manager = state["asset_manager"]
-            usdz_path = state["usdz_path"]
-        else:
-            usdz_path = await download_room_usdz(req.usdz_path)
-            manager = await asyncio.to_thread(create_run_context, usdz_path)
-            state = build_initial_state(req, manager)
-            state["usdz_path"] = usdz_path
-            manager.write_json(STAGE_DIRS["meta"], "run_meta.json", {
-                "timestamp": time.strftime("%Y%m%d_%H%M%S"),
-                "user_intent": req.user_intent,
-                "budget": req.budget,
-            })
+        manager = await asyncio.to_thread(create_run_context)
+        usdz_path, room_id = await supabase.download_room(req.usdz_path, Path(manager.run_dir) / STAGE_DIRS["meta"])
+        state = build_initial_state(req, manager, room_id)
+        state["usdz_path"] = usdz_path
+        manager.write_json(STAGE_DIRS["meta"], "run_meta.json", {
+            "timestamp": time.strftime("%Y%m%d_%H%M%S"),
+            "user_intent": req.user_intent,
+            "budget": req.budget,
+        })
 
         # Inject full asset catalog when rag_scope is disabled (for select_assets_llm to choose from)
         if not req.run_rag_scope:
@@ -396,6 +363,28 @@ async def pipeline_stream_generator(req: PipelineRequest, phase: str = "full", r
                     logger.info(f"[{name}]   {k}: {v[:200]}...")
                 else:
                     logger.info(f"[{name}]   {k}: {v}")
+            # Upload outputs after render_scene completes
+            if name == "render_scene" and state.get("final_usdz_path") and req.upload_to_supabase:
+                try:
+                    run_name = Path(state["run_dir"]).name
+                    # Store essential asset fields for future iterations
+                    stored_assets = [{k: a.get(k) for k in ("uid", "category", "price", "width", "depth", "height", "materials", "reason", "asset_color", "asset_style", "asset_shape", "description")} for a in state.get("selected_assets", [])]
+                    output_id = await supabase.upload_room_output(
+                        room_id=state.get("room_id"),
+                        run_dir=run_name,
+                        usdz_path=state["final_usdz_path"],
+                        glb_path=state.get("final_glb_path"),
+                        selected_assets=stored_assets,
+                        user_intent=state.get("user_intent"),
+                        budget=state.get("budget"),
+                        layoutvlm_layout=state.get("layoutvlm_layout"),
+                    )
+                    state["output_id"] = output_id
+                    logger.info("[UPLOAD] Room output uploaded: %s", output_id)
+                except Exception as e:
+                    import traceback
+                    logger.error("[UPLOAD] Failed to upload output: %s\n%s", e, traceback.format_exc())
+
             # Serialize node result (exclude non-serializable objects)
             result_preview = {}
             for k, v in updates.items():
@@ -408,20 +397,6 @@ async def pipeline_stream_generator(req: PipelineRequest, phase: str = "full", r
                     result_preview[k] = str(type(v).__name__)
             yield send_event("node_complete", {"node": name, "index": current_idx, "elapsed": elapsed, "result": result_preview})
 
-            # Pause for review after layout_preview if requested
-            if name == "layout_preview" and req.pause_for_review and phase == "before_review":
-                run_name = Path(state["run_dir"]).name
-                _paused_pipelines[run_name] = state
-                selected_assets = [{"uid": a["uid"], "category": a.get("category", ""), "price": a.get("price", 0)} for a in state.get("selected_assets", [])]
-                yield send_event("review_pause", {
-                    "run_dir": run_name,
-                    "layout_preview_path": state.get("layout_preview_path"),
-                    "selected_assets": selected_assets,
-                    "total_cost": state.get("total_cost", 0),
-                    "message": "Review layout and optionally revise assets. Call /pipeline/resume to continue."
-                })
-                return
-
         result = {k: v for k, v in state.items() if k not in ("asset_manager", "progress_callback")}
         manager.write_json(STAGE_DIRS["meta"], "final_state.json", result)
 
@@ -433,7 +408,7 @@ async def pipeline_stream_generator(req: PipelineRequest, phase: str = "full", r
         logger.info("=" * 60)
         logger.info("Pipeline complete!")
         logger.info(f"  Run dir: {state['run_dir']}")
-        logger.info(f"  Selected assets: {state.get('selected_uids', [])}")
+        logger.info(f"  Selected assets: {[a['uid'] for a in state.get('selected_assets', [])]}")
         logger.info(f"  Total cost: ${state.get('total_cost', 0):.2f}")
         logger.info(f"  Layout preview: {state.get('layout_preview_path', 'N/A')}")
         logger.info(f"  Layout preview refine: {state.get('layout_preview_refine_path', 'N/A')}")
@@ -450,7 +425,8 @@ async def pipeline_stream_generator(req: PipelineRequest, phase: str = "full", r
             "message": "Pipeline completed successfully",
             "data": {
                 "run_dir": Path(state["run_dir"]).name,
-                "selected_uids": state["selected_uids"],
+                "output_id": state.get("output_id"),
+                "selected_assets": state.get("selected_assets", []),
                 "total_cost": state["total_cost"],
                 "layoutvlm_layout": state.get("layoutvlm_layout"),
                 "layout_preview_path": state.get("layout_preview_path"),
@@ -475,7 +451,19 @@ async def pipeline_stream_generator(req: PipelineRequest, phase: str = "full", r
     description="""
 Execute the complete interior design pipeline with real-time progress via SSE.
 
-**Pipeline stages:**
+## Modes
+
+**New Design Mode** (default): Provide `usdz_path` to start a fresh design.
+```json
+{"usdz_path": "room-id", "user_intent": "Modern living room", "budget": 5000}
+```
+
+**Iterate Mode**: Provide `output_id` to iterate on a previous design. Use `user_intent` to describe changes.
+```json
+{"output_id": "previous-output-uuid", "user_intent": "change the sofa to green"}
+```
+
+## Pipeline Stages
 - `extract_room` - Extract room geometry from USDZ
 - `rag_scope_assets` - Load and scope assets by user intent via RAG
 - `select_assets` - LLM selects furniture within budget
@@ -489,314 +477,253 @@ Execute the complete interior design pipeline with real-time progress via SSE.
 
 **Note:** Asset sync, topdown renders, descriptions, and vector store are handled by daily warmup.
 
-**Review Mode:** Set `pause_for_review: true` to pause after initial layout for user review.
-
-**SSE Event Types:**
+## SSE Event Types
 - `start` - Pipeline started, includes node list
 - `node_start` - Node execution started
 - `node_progress` - Node progress update (current/total)
 - `node_complete` - Node finished with results
 - `heartbeat` - Keep-alive during long operations
-- `review_pause` - Pipeline paused for review (see below)
 - `complete` - Pipeline finished successfully
 - `error` - Pipeline failed with error message
-
-**Sample `review_pause` event (when pause_for_review=true):**
-```json
-{
-  "type": "review_pause",
-  "run_dir": "20260109_142522",
-  "layout_preview_path": "runs/20260109_142522/draw_layout_preview/layout_preview.png",
-  "selected_assets": [
-    {"uid": "sofa_123", "category": "sofa", "price": 599.0},
-    {"uid": "table_45", "category": "coffee_table", "price": 199.0}
-  ],
-  "total_cost": 798.0,
-  "message": "Review layout and optionally revise assets. Call /pipeline/resume to continue."
-}
-```
-To continue, call `POST /pipeline/resume` with `{"run_dir": "20260109_142522"}` or include `revision_prompt` to modify assets.
-
-**Sample `complete` event output:**
-```json
-{
-  "type": "complete",
-  "status": "success",
-  "message": "Pipeline completed successfully",
-  "data": {
-    "run_dir": "20260109_142522",
-    "selected_uids": ["sectional_sofa_165", "coffee_table_1"],
-    "total_cost": 706.0,
-    "layoutvlm_layout": {},
-    "layout_preview_path": "runs/20260109_142522/draw_layout_preview/layout_preview.png",
-    "layout_preview_refine_path": "runs/20260109_142522/draw_layout_preview/layout_preview_refine.png",
-    "layout_preview_post_path": "runs/20260109_142522/draw_layout_preview/layout_preview_post.png",
-    "layoutvlm_gif_path": "runs/20260109_142522/layoutvlm/optimization.gif",
-    "final_usdz_path": "runs/20260109_142522/render_scene/room_with_assets_final.usdz",
-    "final_glb_path": "runs/20260109_142522/render_scene/room_with_assets_final.glb",
-    "render_top_view": "runs/20260109_142522/render_scene/render_top.png",
-    "render_perspective_view": "runs/20260109_142522/render_scene/render_perspective.png"
-  }
-}
-```
-Note: `final_glb_path` is only present when `export_glb=true` is set in the request.
 """,
     tags=["Pipeline"],
     response_description="Server-Sent Events stream with pipeline progress"
 )
 async def run_pipeline(req: PipelineRequest):
     """Run the full pipeline with streaming progress updates."""
-    phase = "before_review" if req.pause_for_review else "full"
+    # Iterate mode: load previous output and run with revision
+    if req.output_id:
+        if not USD_AVAILABLE:
+            raise HTTPException(status_code=501, detail="Iterate requires usd-core (not available).")
+
+        output = await asyncio.to_thread(supabase.get_room_output, req.output_id)
+        if not output:
+            raise HTTPException(status_code=404, detail=f"Output not found: {req.output_id}")
+
+        room_id = output.get("room_id")
+        if not room_id:
+            raise HTTPException(status_code=400, detail="Output has no associated room_id")
+
+        return StreamingResponse(
+            iterate_stream_generator(req, output, room_id),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+        )
+
+    # Normal mode: require usdz_path
+    if not req.usdz_path:
+        raise HTTPException(status_code=400, detail="usdz_path is required (or provide output_id to iterate)")
+
     return StreamingResponse(
-        pipeline_stream_generator(req, phase=phase),
+        pipeline_stream_generator(req),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     )
 
 
-@app.post(
-    "/pipeline/resume",
-    summary="Resume paused pipeline",
-    description="""
-Resume a pipeline that was paused for review (when `pause_for_review=true` was set).
+async def iterate_stream_generator(req: PipelineRequest, output: dict, room_id: str):
+    """Generator for iterate mode: uses revision-style logic (skip initial_layout if categories unchanged)."""
+    from collections import Counter
 
-## Usage
+    def send_event(event_type: str, data: dict):
+        return f"data: {json.dumps({'type': event_type, **data})}\n\n"
 
-**Continue without changes:**
-```json
-{"run_dir": "20260109_142522"}
-```
+    def get_category_counts(assets):
+        return Counter(a.get("category", "") for a in assets)
 
-**Revise assets before continuing:**
-```json
-{"run_dir": "20260109_142522", "revision_prompt": "change the sofa to a green velvet one"}
-```
+    try:
+        manager = await asyncio.to_thread(create_run_context)
+        usdz_path, _ = await supabase.download_room(room_id, Path(manager.run_dir) / STAGE_DIRS["meta"])
 
-**Export GLB in addition to USDZ:**
-```json
-{"run_dir": "20260109_142522", "export_glb": true}
-```
+        user_intent = req.user_intent if req.user_intent != "Modern minimalist living room" else output.get("user_intent", "Modern minimalist living room")
+        budget = req.budget if req.budget != 5000.0 else output.get("budget", 5000.0)
+        prev_assets = output.get("selected_assets", [])
+        prev_layout = output.get("layoutvlm_layout") or output.get("initial_layout", {})  # fallback for old records
+        prev_counts = get_category_counts(prev_assets)
 
-## Revision Behavior
+        state = {
+            "run_dir": str(manager.run_dir),
+            "asset_manager": manager,
+            "user_intent": user_intent,
+            "usdz_path": usdz_path,
+            "room_id": room_id,
+            "budget": budget,
+            "selected_assets": prev_assets,
+            "selected_uids": [a["uid"] for a in prev_assets],
+            "total_cost": sum(a.get("price", 0) for a in prev_assets),
+            "task_description": "",
+            "constraint_program": "",
+            "layout_groups": [],
+            "initial_layout": prev_layout,
+            "refined_layout": {},
+            "layoutvlm_layout": {},
+            "layout_preview_path": "",
+            "layout_preview_refine_path": "",
+            "layout_preview_post_path": "",
+            "boundary": {},
+            "assets": {},
+            "void_assets": {},
+            "asset_revision_prompt": req.user_intent,
+        }
 
-When `revision_prompt` is provided:
-1. **Asset Re-selection** - LLM re-runs asset selection with revision context
-2. **Layout Decision** - If asset categories change, regenerates layout; otherwise swaps UIDs in existing layout
-3. **Continue Pipeline** - Runs remaining stages (refine_layout, layoutvlm, render_scene)
+        manager.write_json(STAGE_DIRS["meta"], "run_meta.json", {
+            "timestamp": time.strftime("%Y%m%d_%H%M%S"),
+            "user_intent": user_intent,
+            "budget": budget,
+            "previous_output_id": req.output_id,
+        })
 
-## SSE Event Types
+        # Load asset catalog
+        dataset_path = Path(__file__).parent / "dataset" / "processed.json"
+        with open(dataset_path) as f:
+            all_assets = json.load(f)
+        render_dir = Path(__file__).parent / "dataset" / "render"
+        for a in all_assets:
+            a["score"] = 0.0
+            a["image_path"] = str(render_dir / f"{a['uid']}.png")
+        csv_lines = ["uid,category,price,width,depth,height,materials,color,style,shape,asset_description,description"]
+        for a in all_assets:
+            csv_lines.append(
+                f'{a["uid"]},{a["category"]},{a["price"]},{a["width"]},{a["depth"]},{a["height"]},'
+                f'"{a["materials"]}",{a.get("asset_color","")},{a.get("asset_style","")},{a.get("asset_shape","")},'
+                f'"{a.get("asset_description","")}","{a["description"][:100]}"'
+            )
+        state["assets_csv"] = "\n".join(csv_lines)
+        state["assets_data"] = all_assets
 
-Same as `/pipeline` endpoint, plus:
-- `start` with `mode: "revision"` indicates revision mode
-- Node list dynamically includes/excludes `initial_layout` based on whether categories changed
+        # Run extract_room first, then select_assets to determine if categories changed
+        current_idx = 0
+        yield send_event("node_start", {"node": "extract_room", "index": current_idx})
+        start_time = time.time()
+        updates = await extract_room_node(state) if asyncio.iscoroutinefunction(extract_room_node) else await asyncio.to_thread(extract_room_node, state)
+        state.update(updates)
+        yield send_event("node_complete", {"node": "extract_room", "index": current_idx, "elapsed": round(time.time() - start_time, 2), "result": {k: v for k, v in updates.items() if k != "asset_manager"}})
+        current_idx += 1
 
-**Sample revision `start` event:**
-```json
-{
-  "type": "start",
-  "nodes": ["select_assets", "validate_and_cost", "initial_layout", "layout_preview", "refine_layout", "layoutvlm", "render_scene"],
-  "mode": "revision"
-}
-```
+        yield send_event("node_start", {"node": "select_assets", "index": current_idx})
+        start_time = time.time()
+        updates = await asyncio.to_thread(select_assets_llm_node, state)
+        state.update(updates)
+        select_elapsed = round(time.time() - start_time, 2)
+        yield send_event("node_complete", {"node": "select_assets", "index": current_idx, "elapsed": select_elapsed, "result": {k: v for k, v in updates.items() if k != "asset_manager"}})
+        current_idx += 1
 
-**Sample `complete` event:**
-```json
-{
-  "type": "complete",
-  "status": "success",
-  "message": "Pipeline completed with revision",
-  "data": {
-    "run_dir": "20260109_142522",
-    "selected_uids": ["green_sofa_42", "coffee_table_1"],
-    "total_cost": 850.0,
-    "layout_preview_path": "runs/20260109_142522/draw_layout_preview/layout_preview.png",
-    "layout_preview_refine_path": "runs/20260109_142522/draw_layout_preview/layout_preview_refine.png",
-    "final_usdz_path": "runs/20260109_142522/render_scene/room_with_assets_final.usdz",
-    "final_glb_path": "runs/20260109_142522/render_scene/room_with_assets_final.glb",
-    "render_top_view": "runs/20260109_142522/render_scene/render_top.png",
-    "render_perspective_view": "runs/20260109_142522/render_scene/render_perspective.png"
-  }
-}
-```
-Note: `final_glb_path` is only present when `export_glb=true` is set.
-""",
-    tags=["Pipeline"],
-    response_description="Server-Sent Events stream with pipeline progress",
-    responses={404: {"description": "No paused pipeline found for the given run_dir"}}
-)
-async def resume_pipeline(req: ResumeRequest):
-    """Resume a paused pipeline, optionally with asset revision."""
-    if req.run_dir not in _paused_pipelines:
-        raise HTTPException(status_code=404, detail=f"No paused pipeline found for run_dir: {req.run_dir}")
+        yield send_event("node_start", {"node": "validate_and_cost", "index": current_idx})
+        start_time = time.time()
+        updates = validate_and_cost_node(state)
+        state.update(updates)
+        yield send_event("node_complete", {"node": "validate_and_cost", "index": current_idx, "elapsed": round(time.time() - start_time, 2), "result": {k: v for k, v in updates.items() if k != "asset_manager"}})
+        current_idx += 1
 
-    state = _paused_pipelines.pop(req.run_dir)
+        # Check if categories changed
+        new_assets = state.get("selected_assets", [])
+        new_counts = get_category_counts(new_assets)
+        needs_relayout = prev_counts != new_counts
 
-    if req.revision_prompt:
-        # Re-run from select_assets with revision
-        state["asset_revision_prompt"] = req.revision_prompt
-        # Build a new request with same parameters
-        pipeline_req = PipelineRequest(
-            user_intent=state.get("user_intent", "Modern minimalist living room"),
-            budget=state.get("budget", 5000.0),
-            usdz_path=state.get("usdz_path", ""),
-            run_select_assets=True,
-            run_initial_layout=True,
-            run_refine_layout=True,
-            run_layoutvlm=True,
-            run_render_scene=True,
-        )
+        # Build node list dynamically based on whether we need relayout
+        node_list = ["extract_room", "select_assets", "validate_and_cost"]
+        if needs_relayout:
+            node_list.append("initial_layout")
+        node_list.extend(["layout_preview", "refine_layout", "layout_preview_refine"])
+        if USD_AVAILABLE:
+            node_list.extend(["layoutvlm", "layout_preview_post", "render_scene"])
 
-        async def revision_generator():
-            """Run revision: select_assets -> (maybe initial_layout) -> layout_preview -> rest."""
-            # Start new revision in same run folder
-            manager = state["asset_manager"]
-            rev_num = manager.start_revision()
-            logger.info(f"[REVISION] Starting revision {rev_num} in {manager.run_dir}")
+        yield send_event("start", {"nodes": node_list, "mode": "iterate", "previous_output_id": req.output_id})
 
-            def send_event(event_type: str, data: dict):
-                return f"data: {json.dumps({'type': event_type, **data})}\n\n"
-
-            def get_category_counts(assets):
-                from collections import Counter
-                return Counter(a.get("category", "") for a in assets)
-
-            # Store previous assets for comparison
-            prev_assets = state.get("selected_assets", [])
-            prev_layout = state.get("initial_layout", {})
-            prev_counts = get_category_counts(prev_assets)
-
-            node_names = ["select_assets", "validate_and_cost"]
-
-            # Run select_assets first to determine if we need relayout
+        if needs_relayout:
+            logger.info("[ITERATE] Asset categories changed, re-running initial_layout")
+            yield send_event("node_start", {"node": "initial_layout", "index": current_idx})
             start_time = time.time()
-            updates = select_assets_llm_node(state)
+            updates = generate_initial_layout_node(state)
             state.update(updates)
-            select_elapsed = round(time.time() - start_time, 2)
+            yield send_event("node_complete", {"node": "initial_layout", "index": current_idx, "elapsed": round(time.time() - start_time, 2), "result": {k: v for k, v in updates.items() if k != "asset_manager"}})
+            current_idx += 1
+        else:
+            logger.info("[ITERATE] Asset categories unchanged, swapping UIDs in layout")
+            prev_by_cat = {}
+            for a in prev_assets:
+                prev_by_cat.setdefault(a.get("category", ""), []).append(a["uid"])
+            new_by_cat = {}
+            for a in new_assets:
+                new_by_cat.setdefault(a.get("category", ""), []).append(a["uid"])
+            uid_map = {old: new for cat in prev_by_cat for old, new in zip(prev_by_cat[cat], new_by_cat.get(cat, []))}
+            state["initial_layout"] = {uid_map.get(uid, uid): p for uid, p in prev_layout.items()}
 
+        # Run remaining nodes
+        remaining = [
+            ("layout_preview", lambda s: layout_preview_node(s, "layout_preview_path", "layout_preview.png", "initial_layout")),
+            ("refine_layout", refine_layout_node),
+            ("layout_preview_refine", lambda s: layout_preview_node(s, "layout_preview_refine_path", "layout_preview_refine.png", "refined_layout")),
+        ]
+        if USD_AVAILABLE:
+            remaining.extend([
+                ("layoutvlm", run_layoutvlm_node),
+                ("layout_preview_post", lambda s: layout_preview_node(s, "layout_preview_post_path", "layout_preview_post.png", "layoutvlm_layout")),
+                ("render_scene", lambda s: render_scene_node(s, export_glb=req.export_glb)),
+            ])
+
+        for name, node_fn in remaining:
+            yield send_event("node_start", {"node": name, "index": current_idx})
             start_time = time.time()
-            updates = validate_and_cost_node(state)
-            state.update(updates)
-            validate_elapsed = round(time.time() - start_time, 2)
-
-            # Check if we need relayout
-            new_assets = state.get("selected_assets", [])
-            new_counts = get_category_counts(new_assets)
-            needs_relayout = prev_counts != new_counts
-
-            # Build remaining node list
-            if needs_relayout:
-                node_names.append("initial_layout")
-            node_names.append("layout_preview")
-            node_names.extend(["refine_layout", "layout_preview_refine"])
-            if USD_AVAILABLE:
-                node_names.extend(["layoutvlm", "layout_preview_post", "render_scene"])
-
-            # Now send start with complete node list
-            yield send_event("start", {"nodes": node_names, "mode": "revision"})
-
-            # Emit already-completed nodes
-            yield send_event("node_start", {"node": "select_assets", "index": 0})
-            yield send_event("node_complete", {"node": "select_assets", "index": 0, "elapsed": select_elapsed, "result": {k: v for k, v in state.items() if k not in ("asset_manager", "progress_callback") and k.startswith("selected")}})
-            yield send_event("node_start", {"node": "validate_and_cost", "index": 1})
-            yield send_event("node_complete", {"node": "validate_and_cost", "index": 1, "elapsed": validate_elapsed, "result": {"selected_uids": state.get("selected_uids", []), "total_cost": state.get("total_cost", 0)}})
-
-            current_idx = 2
-            if needs_relayout:
-                logger.info("[REVISION] Asset categories changed, re-running initial_layout")
-                yield send_event("node_start", {"node": "initial_layout", "index": current_idx})
-                start_time = time.time()
-                updates = generate_initial_layout_node(state)
-                state.update(updates)
-                elapsed = round(time.time() - start_time, 2)
-                yield send_event("node_complete", {"node": "initial_layout", "index": current_idx, "elapsed": elapsed, "result": {k: v for k, v in updates.items() if k != "asset_manager"}})
-                current_idx += 1
+            if asyncio.iscoroutinefunction(node_fn):
+                updates = await node_fn(state)
             else:
-                logger.info("[REVISION] Asset categories unchanged, swapping UIDs in layout")
-                prev_by_cat = {}
-                for a in prev_assets:
-                    prev_by_cat.setdefault(a.get("category", ""), []).append(a["uid"])
-                new_by_cat = {}
-                for a in new_assets:
-                    new_by_cat.setdefault(a.get("category", ""), []).append(a["uid"])
-                uid_map = {old: new for cat in prev_by_cat for old, new in zip(prev_by_cat[cat], new_by_cat.get(cat, []))}
-                state["initial_layout"] = {uid_map.get(uid, uid): p for uid, p in prev_layout.items()}
-
-            # Run layout_preview
-            yield send_event("node_start", {"node": "layout_preview", "index": current_idx})
-            start_time = time.time()
-            updates = layout_preview_node(state, "layout_preview_path", "layout_preview.png", "initial_layout")
+                updates = await asyncio.to_thread(node_fn, state)
             state.update(updates)
-            elapsed = round(time.time() - start_time, 2)
-            yield send_event("node_complete", {"node": "layout_preview", "index": current_idx, "elapsed": elapsed, "result": {k: v for k, v in updates.items() if k != "asset_manager"}})
+            yield send_event("node_complete", {"node": name, "index": current_idx, "elapsed": round(time.time() - start_time, 2), "result": {k: v for k, v in updates.items() if k != "asset_manager"}})
             current_idx += 1
 
-            # Run remaining nodes
-            remaining = [
-                ("refine_layout", refine_layout_node),
-                ("layout_preview_refine", lambda s: layout_preview_node(s, "layout_preview_refine_path", "layout_preview_refine.png", "refined_layout")),
-            ]
-            if USD_AVAILABLE:
-                remaining.extend([
-                    ("layoutvlm", run_layoutvlm_node),
-                    ("layout_preview_post", lambda s: layout_preview_node(s, "layout_preview_post_path", "layout_preview_post.png", "layoutvlm_layout")),
-                    ("render_scene", lambda s: render_scene_node(s, export_glb=req.export_glb)),
-                ])
-            for name, node_fn in remaining:
-                yield send_event("node_start", {"node": name, "index": current_idx})
-                start_time = time.time()
-                if asyncio.iscoroutinefunction(node_fn):
-                    updates = await node_fn(state)
-                else:
-                    updates = await asyncio.to_thread(node_fn, state)
-                state.update(updates)
-                elapsed = round(time.time() - start_time, 2)
-                yield send_event("node_complete", {"node": name, "index": current_idx, "elapsed": elapsed, "result": {k: v for k, v in updates.items() if k != "asset_manager"}})
-                current_idx += 1
+        # Upload outputs
+        new_output_id = None
+        if state.get("final_usdz_path") and req.upload_to_supabase:
+            try:
+                run_name = Path(state["run_dir"]).name
+                stored_assets = [{k: a.get(k) for k in ("uid", "category", "price", "width", "depth", "height", "materials", "reason", "asset_color", "asset_style", "asset_shape", "description")} for a in state.get("selected_assets", [])]
+                new_output_id = await supabase.upload_room_output(
+                    room_id=room_id,
+                    run_dir=run_name,
+                    usdz_path=state["final_usdz_path"],
+                    glb_path=state.get("final_glb_path"),
+                    selected_assets=stored_assets,
+                    user_intent=user_intent,
+                    budget=budget,
+                    layoutvlm_layout=state.get("layoutvlm_layout"),
+                )
+                logger.info("[UPLOAD] Iteration output uploaded: %s", new_output_id)
+            except Exception as e:
+                import traceback
+                logger.error("[UPLOAD] Failed to upload iteration output: %s\n%s", e, traceback.format_exc())
 
-            # Complete - match main pipeline output format
-            run_name = Path(state["run_dir"]).name
-            layoutvlm_gif_path = str(Path(state["run_dir"]) / STAGE_DIRS["layoutvlm"] / "optimization.gif")
-            if not Path(layoutvlm_gif_path).exists():
-                layoutvlm_gif_path = None
-            yield send_event("complete", {
-                "status": "success",
-                "message": "Pipeline completed with revision",
-                "data": {
-                    "run_dir": run_name,
-                    "selected_uids": [a["uid"] for a in state.get("selected_assets", [])],
-                    "total_cost": state.get("total_cost", 0),
-                    "layoutvlm_layout": state.get("layoutvlm_layout"),
-                    "layout_preview_path": state.get("layout_preview_path"),
-                    "layout_preview_refine_path": state.get("layout_preview_refine_path"),
-                    "layout_preview_post_path": state.get("layout_preview_post_path"),
-                    "layoutvlm_gif_path": layoutvlm_gif_path,
-                    "final_usdz_path": state.get("final_usdz_path"),
-                    "final_glb_path": state.get("final_glb_path"),
-                    "render_top_view": state.get("render_top_view"),
-                    "render_perspective_view": state.get("render_perspective_view"),
-                }
-            })
+        # Complete
+        run_name = Path(state["run_dir"]).name
+        layoutvlm_gif_path = str(Path(state["run_dir"]) / STAGE_DIRS["layoutvlm"] / "optimization.gif")
+        if not Path(layoutvlm_gif_path).exists():
+            layoutvlm_gif_path = None
 
-        return StreamingResponse(
-            revision_generator(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
-        )
-    else:
-        # Continue without revision - just run remaining nodes
-        pipeline_req = PipelineRequest(
-            user_intent=state.get("user_intent", "Modern minimalist living room"),
-            budget=state.get("budget", 5000.0),
-            usdz_path=state.get("usdz_path", ""),
-            run_refine_layout=True,
-            run_layoutvlm=True,
-            run_render_scene=True,
-        )
-        return StreamingResponse(
-            pipeline_stream_generator(pipeline_req, phase="after_review", resume_state=state),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
-        )
+        yield send_event("complete", {
+            "status": "success",
+            "message": "Pipeline completed with iteration",
+            "data": {
+                "run_dir": run_name,
+                "output_id": new_output_id,
+                "previous_output_id": req.output_id,
+                "selected_assets": state.get("selected_assets", []),
+                "total_cost": state.get("total_cost", 0),
+                "layoutvlm_layout": state.get("layoutvlm_layout"),
+                "layout_preview_path": state.get("layout_preview_path"),
+                "layout_preview_refine_path": state.get("layout_preview_refine_path"),
+                "layout_preview_post_path": state.get("layout_preview_post_path"),
+                "layoutvlm_gif_path": layoutvlm_gif_path,
+                "final_usdz_path": state.get("final_usdz_path"),
+                "final_glb_path": state.get("final_glb_path"),
+                "render_top_view": state.get("render_top_view"),
+                "render_perspective_view": state.get("render_perspective_view"),
+            }
+        })
+    except Exception as e:
+        import traceback
+        logger.error(f"Iterate pipeline error: {e}\n{traceback.format_exc()}")
+        yield send_event("error", {"message": str(e)})
 
 
 @app.post(
@@ -855,7 +782,8 @@ def get_mock_state(node_name: str) -> dict[str, Any]:
         "run_dir": str(run_dir),
         "asset_manager": manager,
         "user_intent": "Modern minimalist living room",
-        "usdz_path": "dataset/room/Project-2510280721.usdz",
+        "usdz_path": "Project-2510280721.usdz",
+        "room_id": "mock-room-id",
         "budget": 5000.0,
         **MOCK_ROOM_GEOMETRY,
     }
@@ -959,29 +887,106 @@ async def health():
     return {"status": "ok"}
 
 
-UPLOAD_DIR = Path("dataset/room")
+@app.get(
+    "/rooms",
+    summary="List available rooms",
+    description="""List all rooms available in Supabase storage.
+
+Returns array of room objects with `id`, `filename`, and `created_at`.
+Use the `id` (UUID) or `filename` as `usdz_path` in the `/pipeline` request.
+""",
+    tags=["Rooms"]
+)
+async def list_rooms():
+    """List all available rooms from Supabase."""
+    rooms = await asyncio.to_thread(supabase.list_rooms)
+    return {"rooms": rooms}
+
+
+@app.get(
+    "/rooms/{room_id}",
+    summary="Get room details",
+    description="Get details for a specific room by ID.",
+    tags=["Rooms"],
+    responses={404: {"description": "Room not found"}}
+)
+async def get_room(room_id: str):
+    """Get room details by ID."""
+    room = await asyncio.to_thread(supabase.get_room, room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+    return room
+
+
+@app.get(
+    "/outputs",
+    summary="List room outputs",
+    description="""List generated room outputs from Supabase storage.
+
+**Query parameters:**
+- `room_id` - Filter outputs by room UUID (optional)
+- `limit` - Maximum number of results (default: 50)
+
+Returns array of output records with `id`, `room_id`, `run_dir`, `storage_path`, `selected_assets`, and `created_at`.
+""",
+    tags=["Results"]
+)
+async def list_outputs(room_id: str | None = None, limit: int = 50):
+    """List room outputs from Supabase."""
+    outputs = await asyncio.to_thread(supabase.list_room_outputs, room_id, limit)
+    return {"outputs": outputs}
+
+
+@app.get(
+    "/outputs/{output_id}",
+    summary="Get output details",
+    description="""Get details for a specific output by ID.
+
+Returns full output record including:
+- `id`, `room_id`, `run_dir`, `storage_path`, `selected_assets`, `created_at`
+- `usdz_url` - Pre-signed download URL for the USDZ file
+- `glb_url` - Pre-signed download URL for the GLB file (if exported)
+""",
+    tags=["Results"],
+    responses={404: {"description": "Output not found"}}
+)
+async def get_output(output_id: str):
+    """Get output details by ID."""
+    output = await asyncio.to_thread(supabase.get_room_output, output_id)
+    if not output:
+        raise HTTPException(status_code=404, detail="Output not found")
+    # Add download URLs
+    output["usdz_url"] = supabase.get_output_download_url(output["storage_path"])
+    if output.get("storage_path_glb"):
+        output["glb_url"] = supabase.get_output_download_url(output["storage_path_glb"])
+    return output
 
 
 @app.post(
     "/upload/room",
     summary="Upload USDZ room plan",
-    description="Upload a USDZ room file. Returns the path to use with the `/pipeline` endpoint.",
-    tags=["System"]
+    description="""Upload a USDZ room file to Supabase storage.
+
+**Response:**
+- `room_id` - UUID to use as `usdz_path` in `/pipeline` request
+- `filename` - Stored filename (can also be used as `usdz_path`)
+
+Example: After uploading, run pipeline with `{"usdz_path": "550e8400-e29b-41d4-a716-446655440000", ...}`
+""",
+    tags=["Rooms"]
 )
 async def upload_room(file: UploadFile):
-    """Upload USDZ room file and return path for pipeline."""
+    """Upload USDZ room file to Supabase."""
     if not file.filename.endswith(".usdz"):
         raise HTTPException(status_code=400, detail="File must be a .usdz file")
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"{timestamp}_{file.filename}"
-    file_path = UPLOAD_DIR / filename
     content = await file.read()
-    file_path.write_bytes(content)
+    room = await supabase.upload_room(filename, content)
     return {
         "status": "success",
-        "message": "Room uploaded successfully",
-        "data": {"usdz_path": str(file_path)},
+        "message": "Room uploaded to Supabase",
+        "data": {"room_id": room["id"], "filename": room["filename"]},
     }
 
 
@@ -1003,41 +1008,48 @@ async def serve_preview(run_dir: str):
 @app.get(
     "/download/usdz/{run_dir:path}",
     summary="Download final USDZ",
-    description="Download the final rendered USDZ file with furniture placed in the room. Compatible with iOS AR Quick Look.",
+    description="""Download the final rendered USDZ file with furniture placed in the room.
+
+Redirects to a pre-signed Supabase storage URL. Compatible with iOS AR Quick Look.
+""",
     tags=["Results"],
-    responses={404: {"description": "USDZ file not found"}}
+    responses={404: {"description": "USDZ file not found"}, 307: {"description": "Redirect to Supabase storage URL"}}
 )
 async def download_usdz(run_dir: str):
-    """Download final USDZ scene file."""
-    usdz_path = Path("runs") / run_dir / STAGE_DIRS["render_scene"] / "room_with_assets_final.usdz"
-    if not usdz_path.exists():
+    """Download final USDZ scene file from Supabase."""
+    output = await asyncio.to_thread(supabase.get_room_output_by_run_dir, run_dir)
+    if not output or not output.get("storage_path"):
         raise HTTPException(status_code=404, detail="USDZ file not found")
-    return FileResponse(
-        usdz_path,
-        media_type="model/vnd.usdz+zip",
-        filename="room_with_assets.usdz",
-        headers={"Content-Disposition": "attachment; filename=room_with_assets.usdz"}
-    )
+    url = supabase.get_output_download_url(output["storage_path"])
+    return RedirectResponse(url=url)
 
 
 @app.get(
     "/download/glb/{run_dir:path}",
     summary="Download final GLB",
-    description="Download the final rendered GLB file. Only available if export_glb=true was set.",
+    description="""Download the final rendered GLB file. Only available if `export_glb=true` was set in the pipeline request.
+
+Redirects to a pre-signed Supabase storage URL.
+""",
     tags=["Results"],
-    responses={404: {"description": "GLB file not found"}}
+    responses={404: {"description": "GLB file not found"}, 307: {"description": "Redirect to Supabase storage URL"}}
 )
 async def download_glb(run_dir: str):
-    """Download final GLB scene file."""
+    """Download final GLB scene file. Tries Supabase first, falls back to local file."""
+    # Try Supabase redirect first
+    try:
+        output = await asyncio.to_thread(supabase.get_room_output_by_run_dir, run_dir)
+        if output and output.get("storage_path_glb"):
+            url = supabase.get_output_download_url(output["storage_path_glb"])
+            return RedirectResponse(url=url)
+    except Exception as e:
+        logger.warning("[download_glb] Supabase lookup failed, trying local: %s", e)
+
+    # Fallback: serve from local runs/ dir (when Supabase not populated or lookup fails)
     glb_path = Path("runs") / run_dir / STAGE_DIRS["render_scene"] / "room_with_assets_final.glb"
-    if not glb_path.exists():
-        raise HTTPException(status_code=404, detail="GLB file not found")
-    return FileResponse(
-        glb_path,
-        media_type="model/gltf-binary",
-        filename="room_with_assets.glb",
-        headers={"Content-Disposition": "attachment; filename=room_with_assets.glb"}
-    )
+    if glb_path.exists():
+        return FileResponse(glb_path, media_type="model/gltf-binary")
+    raise HTTPException(status_code=404, detail="GLB file not found")
 
 
 @app.get(

@@ -6,7 +6,10 @@
 export interface PipelineRequest {
   user_intent: string
   budget: number
-  usdz_path: string
+  /** For new design: use room_id or filename from upload/room */
+  usdz_path?: string
+  /** For iteration: use output_id from previous pipeline result */
+  output_id?: string
   export_glb?: boolean
   run_rag_scope?: boolean
   run_select_assets?: boolean
@@ -14,13 +17,14 @@ export interface PipelineRequest {
   run_refine_layout?: boolean
   run_layoutvlm?: boolean
   run_render_scene?: boolean
+  upload_to_supabase?: boolean
 }
 
 export interface UploadResponse {
   status: string
-  message: string
   data: {
-    usdz_path: string
+    room_id: string    // UUID for the room
+    filename: string   // timestamped filename
   }
 }
 
@@ -40,6 +44,23 @@ export interface PipelineEvent {
 
 export interface PipelineResult {
   run_dir: string
+  output_id: string
+  selected_assets: Array<{
+    uid: string
+    category: string
+    price: number
+    width: number
+    depth: number
+    height: number
+    materials: string[]
+    description: string
+    reason?: string
+    asset_color?: string
+    asset_style?: string
+    asset_shape?: string
+    image_path?: string
+    path?: string
+  }>
   selected_uids: string[]
   total_cost: number
   layoutvlm_layout: any
@@ -48,8 +69,10 @@ export interface PipelineResult {
   layout_preview_post_path?: string
   layoutvlm_gif_path?: string
   final_usdz_path?: string
+  final_glb_path?: string
   render_top_view?: string
   render_perspective_view?: string
+  previous_output_id?: string // For iterations
 }
 
 export class ApiClientError extends Error {
@@ -65,6 +88,7 @@ export class ApiClientError extends Error {
 
 export class ApiClient {
   private baseURL: string
+  private useProxy: boolean = false // Option to use Next.js API proxy routes
 
   constructor(baseURL?: string) {
     this.baseURL = (
@@ -75,17 +99,50 @@ export class ApiClient {
   }
 
   /**
+   * Enable proxy mode to route requests through Next.js API routes
+   * This can help with CORS and network reliability issues
+   */
+  enableProxy() {
+    this.useProxy = true
+  }
+
+  /**
+   * Get the appropriate URL for API calls based on proxy mode
+   */
+  private getApiUrl(endpoint: string): string {
+    if (this.useProxy) {
+      // Use Next.js API routes which proxy to the backend
+      return endpoint.startsWith('/') ? `/api${endpoint}` : `/api/${endpoint}`
+    }
+    return `${this.baseURL}/${endpoint.replace(/^\//, '')}`
+  }
+
+  /**
    * Upload USDZ room file to the backend
    */
   async uploadRoom(file: File): Promise<UploadResponse> {
     const formData = new FormData()
     formData.append('file', file)
 
+    console.log('📤 Starting USDZ upload:', {
+      filename: file.name,
+      size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+      type: file.type
+    })
+
     try {
+      // Add timeout for upload (5 minutes for large files)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000)
+
       const response = await fetch(`${this.baseURL}/upload/room`, {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
+        // Don't set Content-Type header - let browser set it with boundary for FormData
       })
+
+      clearTimeout(timeoutId)
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Upload failed' }))
@@ -95,22 +152,67 @@ export class ApiClient {
         )
       }
 
-      return await response.json()
+      const json = await response.json()
+      console.log('✅ Upload successful:', json)
+      return json
     } catch (error) {
       if (error instanceof ApiClientError) {
         throw error
       }
+      
+      // Handle network-specific errors
+      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+        throw new ApiClientError(
+          'Network connection failed. Please check your internet connection and try again.',
+          0,
+          'NETWORK_DISCONNECTED'
+        )
+      }
+      
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new ApiClientError(
+          'Upload timeout - file is too large or connection too slow. Please try with a smaller file.',
+          0,
+          'UPLOAD_TIMEOUT'
+        )
+      }
+      
       throw new ApiClientError(
-        `Network error during upload: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         0,
-        'NETWORK_ERROR'
+        'UPLOAD_ERROR'
       )
     }
   }
 
   /**
+   * Get usdz_path from upload response - backend returns room_id and filename
+   * Per backend analysis: usdz_path can be room_id (UUID) or filename
+   */
+  getUsdzPathFromUploadResponse(response: UploadResponse): string {
+    // Backend returns: { data: { room_id: "uuid", filename: "timestamp_file.usdz" } }
+    // usdz_path can be either room_id or filename - prefer room_id for cleaner API
+    const roomId = response?.data?.room_id
+    const filename = response?.data?.filename
+    
+    if (roomId && typeof roomId === 'string') {
+      return roomId // Use room_id (UUID) as usdz_path
+    }
+    
+    if (filename && typeof filename === 'string') {
+      return filename // Fallback to filename
+    }
+    
+    throw new ApiClientError(
+      'Upload succeeded but backend did not return room_id or filename. Pipeline requires usdz_path.',
+      0,
+      'MISSING_ROOM_ID'
+    )
+  }
+
+  /**
    * Run pipeline with Server-Sent Events for progress tracking
-   * Uses POST request to start pipeline and SSE for progress updates
+   * Supports both new design (usdz_path) and iteration (output_id) modes
    */
   async runPipeline(
     request: PipelineRequest,
@@ -132,43 +234,106 @@ export class ApiClient {
         }
       }
 
-      try {
-        console.log('🚀 Starting pipeline via fetch with SSE response')
+      // Timeout after 8 minutes (shorter than proxy timeout)
+      let timeoutId: NodeJS.Timeout | null = null
 
-        // Make POST request to pipeline endpoint
-        const response = await fetch(`${this.baseURL}/pipeline`, {
+      try {
+        const mode = request.output_id ? 'iteration' : 'new'
+        console.log(`🚀 Starting pipeline (${mode}) via fetch with SSE response`)
+        console.log('📋 Request:', { ...request, usdz_path: request.usdz_path ? '[hidden]' : undefined })
+
+        // Validate request
+        if (!request.output_id && !request.usdz_path) {
+          throw new ApiClientError('Pipeline requires either usdz_path (new design) or output_id (iteration)', 400)
+        }
+
+        // Use appropriate URL based on proxy mode
+        const pipelineUrl = this.getApiUrl('pipeline')
+        const response = await fetch(pipelineUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            // Remove Connection header - let browser handle it
+            'X-Requested-With': 'livinit-pipeline',
           },
           body: JSON.stringify(request),
           signal: abortSignal,
+          // Remove keepalive - can cause chunking issues with some proxies
         })
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ detail: 'Pipeline failed to start' }))
-          throw new ApiClientError(
-            errorData.detail || `Pipeline failed with status ${response.status}`,
-            response.status
-          )
+          const message =
+            (typeof errorData.detail === 'string' && errorData.detail) ||
+            (Array.isArray(errorData.detail) && errorData.detail[0]?.msg && String(errorData.detail[0].msg)) ||
+            (errorData.message) ||
+            `Failed to start pipeline: ${response.status}`
+          throw new ApiClientError(message, response.status)
         }
 
         if (!response.body) {
           throw new ApiClientError('No response body for SSE stream', 0, 'SSE_ERROR')
         }
 
-        // Read SSE stream with proper buffer handling for large JSON responses
+        // Read SSE stream with robust buffer handling and progressive timeout
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
-        let buffer = '' // Buffer for incomplete JSON data
+        let buffer = '' // Buffer for incomplete data
+        let lastEventTime = Date.now()
+        let consecutiveEmptyReads = 0
+        const MAX_EMPTY_READS = 10 // Maximum consecutive empty reads before considering stream stalled
 
-        const readStream = async () => {
+        // Progressive timeout that resets on each event (not just a single 8-min timer)
+        const resetProgressiveTimeout = () => {
+          if (timeoutId) clearTimeout(timeoutId)
+          lastEventTime = Date.now()
+          consecutiveEmptyReads = 0 // Reset empty read counter on activity
+          timeoutId = setTimeout(() => {
+            if (!resolved) {
+              const minutesWaiting = Math.round((Date.now() - lastEventTime) / 60000)
+              console.log(`⏰ Pipeline timeout after ${minutesWaiting} minutes of inactivity`)
+              resolveOnce(new ApiClientError(
+                `Pipeline timeout after ${minutesWaiting} minutes of no progress. The process may still be running. Check results or retry.`,
+                0,
+                'TIMEOUT'
+              ))
+            }
+          }, 5 * 60 * 1000) // 5-minute timeout between events (more aggressive)
+        }
+        
+        resetProgressiveTimeout() // Initial timeout
+        
+        // Override resolveOnce to clean up timeout
+        const originalResolveOnce = resolveOnce
+        const resolveOnceWithCleanup = (result: PipelineResult | ApiClientError) => {
+          if (timeoutId) clearTimeout(timeoutId)
+          originalResolveOnce(result)
+        }
+        
+        // Replace resolveOnce calls in the readStream function
+        const readStreamWithCleanup = async () => {
           try {
             while (true) {
               const { done, value } = await reader.read()
               
               if (done) break
+              
+              // Handle empty reads which might indicate chunking issues
+              if (!value || value.length === 0) {
+                consecutiveEmptyReads++
+                if (consecutiveEmptyReads >= MAX_EMPTY_READS) {
+                  console.warn(`⚠️ Stream appears stalled after ${consecutiveEmptyReads} empty reads, triggering recovery`)
+                  throw new Error('Stream stalled - chunked encoding incomplete')
+                }
+                // Small delay before next read to avoid tight loop
+                await new Promise(resolve => setTimeout(resolve, 100))
+                continue
+              }
+              
+              // Reset empty read counter on successful read
+              consecutiveEmptyReads = 0
               
               // Decode chunk and add to buffer
               const chunk = decoder.decode(value, { stream: true })
@@ -196,10 +361,10 @@ export class ApiClient {
                     if (data.type === 'complete') {
                       if (data.status === 'success' && data.data) {
                         console.log('✅ Pipeline completed successfully!', data.data)
-                        resolveOnce(data.data as PipelineResult)
+                        resolveOnceWithCleanup(data.data as PipelineResult)
                         return
                       } else {
-                        resolveOnce(new ApiClientError(
+                        resolveOnceWithCleanup(new ApiClientError(
                           data.message || 'Pipeline completed with unknown status',
                           0,
                           'PIPELINE_ERROR'
@@ -211,11 +376,14 @@ export class ApiClient {
                     // Handle errors
                     if (data.type === 'error') {
                       console.error('❌ Pipeline error event:', data)
-                      resolveOnce(new ApiClientError(
-                        data.message || 'Pipeline failed',
-                        0,
-                        'PIPELINE_ERROR'
-                      ))
+                      const rawMessage = data.message || 'Pipeline failed'
+                      const isOverloaded = rawMessage.includes('503') || rawMessage.includes('overloaded') || rawMessage.includes('UNAVAILABLE')
+                      const friendlyMessage = isOverloaded
+                        ? "Our AI is busy right now. We'll retry automatically in a few seconds—please wait."
+                        : rawMessage
+                      const code = isOverloaded ? 'MODEL_OVERLOADED' : 'PIPELINE_ERROR'
+                      const status = isOverloaded ? 503 : 0
+                      resolveOnceWithCleanup(new ApiClientError(friendlyMessage, status, code))
                       return
                     }
                   } catch (parseError) {
@@ -231,19 +399,37 @@ export class ApiClient {
             }
           } catch (error) {
             if (abortSignal?.aborted) {
-              resolveOnce(new ApiClientError('Pipeline aborted', 0, 'ABORTED'))
+              resolveOnceWithCleanup(new ApiClientError('Pipeline aborted', 0, 'ABORTED'))
             } else {
-              console.error('Stream reading error:', error)
-              onError(new ApiClientError(
-                'Stream reading error during pipeline execution',
-                0,
-                'SSE_ERROR'
-              ))
-              resolveOnce(new ApiClientError(
-                'Stream reading error during pipeline execution',
-                0,
-                'SSE_ERROR'
-              ))
+              const isNetworkError =
+                error instanceof TypeError && (error.message === 'network error' || error.message.includes('Failed to fetch')) ||
+                (error instanceof Error && (
+                  error.message.includes('chunked') || 
+                  error.message.includes('incomplete') || 
+                  error.message.includes('network') ||
+                  error.message.includes('stalled') ||
+                  error.message.includes('ERR_INCOMPLETE_CHUNKED_ENCODING')
+                ))
+              
+              if (isNetworkError) {
+                console.error('🔌 Network error during SSE stream:', error)
+                const errorType = error.message.includes('stalled') ? 'STREAM_STALLED' : 'SSE_ERROR'
+                // For network errors, immediately trigger fallback
+                onError(new ApiClientError(
+                  'Connection lost during pipeline execution. Checking if pipeline completed...',
+                  0,
+                  errorType
+                ))
+                resolveOnceWithCleanup(new ApiClientError(
+                  'Connection lost during pipeline execution. Checking if pipeline completed...',
+                  0,
+                  errorType
+                ))
+              } else {
+                console.error('Stream reading error:', error)
+                onError(new ApiClientError('Stream reading error during pipeline execution', 0, 'SSE_ERROR'))
+                resolveOnceWithCleanup(new ApiClientError('Stream reading error during pipeline execution', 0, 'SSE_ERROR'))
+              }
             }
           } finally {
             reader.releaseLock()
@@ -251,28 +437,41 @@ export class ApiClient {
         }
 
         // Start reading the stream
-        readStream()
-
-        // Timeout after 10 minutes
-        setTimeout(() => {
-          if (!resolved) {
-            resolveOnce(new ApiClientError(
-              'Pipeline timeout after 10 minutes',
-              0,
-              'TIMEOUT'
-            ))
-          }
-        }, 10 * 60 * 1000)
+        readStreamWithCleanup()
 
       } catch (error) {
+        if (timeoutId) clearTimeout(timeoutId)
         if (abortSignal?.aborted) {
           resolveOnce(new ApiClientError('Pipeline aborted', 0, 'ABORTED'))
         } else {
-          resolveOnce(new ApiClientError(
-            `Failed to start pipeline: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            0,
-            'SETUP_ERROR'
-          ))
+          // Check if this is a network error and we haven't tried proxy mode yet
+          const isNetworkError = error instanceof Error && (
+            error.message.includes('Failed to fetch') ||
+            error.message.includes('ERR_CONNECTION_REFUSED') ||
+            error.message.includes('network error') ||
+            error.message.includes('TypeError')
+          )
+          
+          if (isNetworkError && !this.useProxy) {
+            console.log('🔄 Direct connection failed, retrying with proxy mode...')
+            this.enableProxy()
+            try {
+              // Retry the entire pipeline call with proxy mode
+              return this.runPipeline(request, onEvent, onError, abortSignal)
+            } catch (retryError) {
+              resolveOnce(new ApiClientError(
+                `Failed to start pipeline even with proxy fallback: ${retryError instanceof Error ? retryError.message : 'Unknown error'}`,
+                0,
+                'SETUP_ERROR'
+              ))
+            }
+          } else {
+            resolveOnce(new ApiClientError(
+              `Failed to start pipeline: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              0,
+              'SETUP_ERROR'
+            ))
+          }
         }
       }
     })
@@ -314,17 +513,16 @@ export class ApiClient {
 
   /**
    * Download final USDZ file
-   * Uses Next.js API route to proxy the request and avoid CORS issues
    */
   async downloadUSDZ(runDir: string): Promise<Blob> {
     try {
       console.log('📥 ApiClient: Starting USDZ download for runDir:', runDir)
       
-      // Use Next.js API route to proxy the request (server-side, no CORS)
-      const apiUrl = `/api/download/usdz/${runDir}`
-      console.log('📥 ApiClient: Fetching from API route:', apiUrl)
+      // Use hosted backend directly to avoid localhost issues
+      const directUrl = `${this.baseURL}/download/usdz/${runDir}`
+      console.log('📥 ApiClient: Fetching USDZ directly from backend:', directUrl)
       
-      const response = await fetch(apiUrl, {
+      const response = await fetch(directUrl, {
         method: 'GET',
         headers: {
           'Accept': 'model/vnd.usdz+zip, application/octet-stream, */*',
@@ -396,21 +594,67 @@ export class ApiClient {
   }
 
   /**
-   * Download final GLB file (better for web viewing)
-   * Uses Next.js API route to proxy the request and avoid CORS issues
+   * Check pipeline status for a run directory or output_id
+   * Returns whether pipeline completed and what assets are available
    */
-  async downloadGLB(runDir: string): Promise<Blob> {
+  async checkPipelineStatus(identifier: string): Promise<{
+    completed: boolean
+    assets: {
+      glb: { available: boolean, size: number }
+      usdz: { available: boolean, size: number }
+      preview: { available: boolean }
+    }
+  }> {
     try {
-      console.log('📥 ApiClient: Starting GLB download for runDir:', runDir)
+      // Clean identifier - remove quotes if present
+      const cleanIdentifier = identifier.replace(/^["']|["']$/g, '')
       
-      const apiUrl = `/api/download/glb/${runDir}`
-      console.log('📥 ApiClient: Fetching GLB from API route:', apiUrl)
+      // Use appropriate URL based on proxy mode or environment
+      const statusUrl = this.useProxy || typeof window !== 'undefined' 
+        ? `/api/pipeline-status/${cleanIdentifier}`
+        : `${this.baseURL}/pipeline-status/${cleanIdentifier}`
+      
+      const response = await fetch(statusUrl)
+      if (!response.ok) {
+        throw new Error(`Status check failed: ${response.status}`)
+      }
+      return await response.json()
+    } catch (error) {
+      console.error('❌ Pipeline status check failed:', error)
+      return {
+        completed: false,
+        assets: {
+          glb: { available: false, size: 0 },
+          usdz: { available: false, size: 0 },
+          preview: { available: false }
+        }
+      }
+    }
+  }
+
+  /**
+   * Download final GLB file (better for web viewing)
+   * @param identifier - Either run_dir (timestamp) or output_id (UUID)
+   */
+  async downloadGLB(identifier: string): Promise<Blob> {
+    try {
+      console.log('📥 ApiClient: Starting GLB download for identifier:', identifier)
+      
+      // Clean the identifier - remove quotes if present
+      const cleanIdentifier = identifier.replace(/^["']|["']$/g, '')
+      
+      // Use appropriate URL based on proxy mode
+      const downloadUrl = this.getApiUrl(`download/glb/${cleanIdentifier}`)
+      console.log('📥 ApiClient: Fetching GLB from:', downloadUrl)
+      
+      // Add a small delay to let the backend finish writing the GLB file
+      await new Promise(resolve => setTimeout(resolve, 2000))
       
       // Long timeout for large GLB files (5 min) - avoid abort during slow blob read
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000)
       
-      const response = await fetch(apiUrl, {
+      const response = await fetch(downloadUrl, {
         method: 'GET',
         headers: {
           'Accept': 'model/gltf-binary, application/octet-stream, */*',
@@ -425,6 +669,16 @@ export class ApiClient {
         console.error('❌ ApiClient GLB: API route responded with error:', response.status)
         const errorData = await response.json().catch(() => ({ detail: 'GLB download failed' }))
         console.error('❌ ApiClient GLB: Error data:', errorData)
+        
+        // If 404, the GLB might not be generated yet - provide helpful message
+        if (response.status === 404) {
+          throw new ApiClientError(
+            'GLB file not found. This might happen if export_glb was not enabled in the pipeline request, or the file is still being generated.',
+            response.status,
+            'GLB_NOT_FOUND'
+          )
+        }
+        
         throw new ApiClientError(
           errorData.detail || `GLB download failed with status ${response.status}`,
           response.status
@@ -463,12 +717,11 @@ export class ApiClient {
 
   /**
    * Get layout preview image
-   * Uses Next.js API route to proxy the request and avoid CORS issues
    */
   async getPreview(runDir: string, type: 'initial' | 'refine' | 'post' = 'initial'): Promise<Blob> {
     try {
-      // Use Next.js API route to proxy the request (server-side, no CORS)
-      const response = await fetch(`/api/preview/${runDir}?type=${type}`)
+      // Use hosted backend directly
+      const response = await fetch(`${this.baseURL}/preview/${runDir}?type=${type}`)
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Preview not found' }))
@@ -493,12 +746,11 @@ export class ApiClient {
 
   /**
    * Get rendered view image (top or perspective)
-   * Uses Next.js API route to proxy the request and avoid CORS issues
    */
   async getRender(runDir: string, view: 'top' | 'perspective'): Promise<Blob> {
     try {
-      // Use Next.js API route to proxy the request (server-side, no CORS)
-      const response = await fetch(`/api/render/${runDir}/${view}`)
+      // Use hosted backend directly
+      const response = await fetch(`${this.baseURL}/render/${runDir}/${view}`)
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Render not found' }))
@@ -523,12 +775,11 @@ export class ApiClient {
 
   /**
    * Get optimization GIF
-   * Uses Next.js API route to proxy the request and avoid CORS issues
    */
   async getOptimizationGif(runDir: string): Promise<Blob> {
     try {
-      // Use Next.js API route to proxy the request (server-side, no CORS)
-      const response = await fetch(`/api/layoutvlm-gif/${runDir}`)
+      // Use hosted backend directly
+      const response = await fetch(`${this.baseURL}/layoutvlm-gif/${runDir}`)
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Optimization GIF not found' }))
@@ -568,5 +819,5 @@ export class ApiClient {
   }
 }
 
-// Singleton instance with hosted backend URL
-export const apiClient = new ApiClient('https://pipeline.livinit.ai')
+// Singleton instance - uses environment variable or default
+export const apiClient = new ApiClient()
