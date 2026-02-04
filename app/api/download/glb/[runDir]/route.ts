@@ -20,7 +20,9 @@ export async function GET(
     // Fetch from backend API (backend may redirect to Supabase or serve local file)
     const backendUrl = `${API_BASE_URL}/download/glb/${runDir}`
     console.log('📥 GLB Route: Fetching from backend:', backendUrl)
-    
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
     const response = await fetch(backendUrl, {
       method: 'GET',
       headers: {
@@ -28,8 +30,9 @@ export async function GET(
         'User-Agent': 'Livinit-Web-GLB/1.0',
       },
       redirect: 'follow', // Follow 307 redirect to Supabase
-      timeout: 30000, // 30 second timeout
+      signal: controller.signal,
     })
+    clearTimeout(timeoutId)
 
     console.log('📊 GLB Route: Backend response:', {
       status: response.status,

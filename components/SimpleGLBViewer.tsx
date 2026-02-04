@@ -331,18 +331,19 @@ const SimpleGLBViewer: React.FC<SimpleGLBViewerProps> = ({
 
   // Initialize everything - only once per objectUrl
   useEffect(() => {
+    const container = containerRef.current
     console.log('🔄 [SimpleGLBViewer] useEffect triggered:', {
       hasObjectUrl: !!objectUrl,
-      hasContainer: !!containerRef.current,
-      containerWidth: containerRef.current?.clientWidth,
-      containerHeight: containerRef.current?.clientHeight,
+      hasContainer: !!container,
+      containerWidth: container?.clientWidth,
+      containerHeight: container?.clientHeight,
       isLoaded,
       isLoading,
       fileSizeMB: (file.size / 1024 / 1024).toFixed(1)
     })
     
     // Only initialize if we have objectUrl, container, and haven't loaded yet
-    if (objectUrl && containerRef.current && !isLoaded) {
+    if (objectUrl && container && !isLoaded) {
       console.log('🎬 [SimpleGLBViewer] Starting initialization sequence...')
       console.log('📦 [SimpleGLBViewer] File details:', {
         size: (file.size / 1024 / 1024).toFixed(1) + ' MB',
@@ -376,22 +377,22 @@ const SimpleGLBViewer: React.FC<SimpleGLBViewerProps> = ({
       initialize()
     } else {
       console.log('⏭️ [SimpleGLBViewer] Skipping initialization:', {
-        reason: !objectUrl ? 'No objectUrl' : !containerRef.current ? 'No container' : 'Already loaded'
+        reason: !objectUrl ? 'No objectUrl' : !container ? 'No container' : 'Already loaded'
       })
     }
 
-    // Cleanup on unmount or when objectUrl changes
+    // Cleanup on unmount or when objectUrl changes (use container captured at effect run time)
     return () => {
       console.log('🧹 [SimpleGLBViewer] Cleanup triggered')
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)
         animationFrameRef.current = undefined
       }
-      if (rendererRef.current && containerRef.current) {
+      if (rendererRef.current && container) {
         try {
           const domElement = rendererRef.current.domElement
-          if (domElement && domElement.parentNode === containerRef.current) {
-            containerRef.current.removeChild(domElement)
+          if (domElement && domElement.parentNode === container) {
+            container.removeChild(domElement)
           }
           rendererRef.current.dispose()
           rendererRef.current = undefined
@@ -418,13 +419,15 @@ const SimpleGLBViewer: React.FC<SimpleGLBViewerProps> = ({
         sceneRef.current = undefined
       }
     }
+    // Intentionally run only when objectUrl changes; initScene/loadModel/animate are stable callbacks
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per objectUrl, avoid re-run on isLoaded/isLoading
   }, [objectUrl])
 
   // Handle resize separately
   useEffect(() => {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
-  }, [])
+  }, [handleResize])
 
   // WebGL not supported
   if (!isWebGLSupported) {
