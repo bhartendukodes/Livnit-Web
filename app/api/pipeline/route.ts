@@ -3,7 +3,8 @@
  * Direct browser → pipeline.livinit.ai connections often get ERR_INCOMPLETE_CHUNKED_ENCODING
  * during long steps (render_scene ~15+ sec). Server-to-server connection is more stable.
  */
-export const maxDuration = 420 // 7 min for full pipeline (render_scene can take 2-3 minutes alone)
+// Vercel Hobby plan max is 300s; request completes when done, no need to wait full duration
+export const maxDuration = 300
 
 import { NextRequest, NextResponse } from 'next/server'
 
