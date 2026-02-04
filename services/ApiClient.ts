@@ -42,6 +42,22 @@ export interface PipelineEvent {
   nodes?: string[]
 }
 
+/** Room output asset from backend GET /api/v1/products/room-output/{id} */
+export interface RoomOutputAsset {
+  image_url?: string | null
+  name: string
+  category?: string | null
+  cost?: string | null
+  description?: string | null
+  product_url?: string | null
+  model_url?: string | null
+}
+
+export interface RoomOutputWithAssetsResponse {
+  assets: RoomOutputAsset[]
+  total: number
+}
+
 export interface PipelineResult {
   run_dir: string
   output_id: string
@@ -630,6 +646,42 @@ export class ApiClient {
         }
       }
     }
+  }
+
+  /**
+   * Get room generation with full asset details (shopping list).
+   * Uses pipeline output_id. Calls backend GET /api/v1/products/room-output/{id} at BACKEND_API_URL.
+   */
+  async getRoomOutputWithAssets(
+    id: string,
+    options?: { timeout?: number; poll_interval?: number }
+  ): Promise<RoomOutputWithAssetsResponse> {
+    const cleanId = id.replace(/^["']|["']$/g, '')
+    const base =
+      process.env.NEXT_PUBLIC_BACKEND_API_URL?.replace(/\/$/, '') ||
+      ''
+    if (!base) {
+      throw new ApiClientError(
+        'Backend API URL not configured (set NEXT_PUBLIC_BACKEND_API_URL)',
+        0,
+        'ROOM_OUTPUT_ERROR'
+      )
+    }
+    const params = new URLSearchParams()
+    if (options?.timeout != null) params.set('timeout', String(options.timeout))
+    if (options?.poll_interval != null) params.set('poll_interval', String(options.poll_interval))
+    const qs = params.toString()
+    const url = `${base}/api/v1/products/room-output/${cleanId}${qs ? `?${qs}` : ''}`
+    const res = await fetch(url)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new ApiClientError(
+        (err as { detail?: string }).detail || `Room output failed: ${res.status}`,
+        res.status,
+        'ROOM_OUTPUT_ERROR'
+      )
+    }
+    return res.json()
   }
 
   /**

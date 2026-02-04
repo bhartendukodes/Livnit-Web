@@ -143,13 +143,14 @@ export default function Home() {
               onReset={handleReset}
               onBudgetChange={setSelectedBudget}
               onDimensionsChange={setSelectedDimensions}
+              onUploadClick={() => setShowUploadModal(true)}
+              hasUploadedRoom={!!uploadedUsdzFile}
+              uploadedFileName={uploadedUsdzFile?.name}
             />
 
             <DesignInput
               onGenerate={handleGenerate}
               hasUploadedRoom={!!uploadedUsdzFile}
-              onUploadClick={() => setShowUploadModal(true)}
-              uploadedFileName={uploadedUsdzFile?.name}
             />
 
             {/* Features */}

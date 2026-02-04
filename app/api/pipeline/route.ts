@@ -3,7 +3,7 @@
  * Direct browser → pipeline.livinit.ai connections often get ERR_INCOMPLETE_CHUNKED_ENCODING
  * during long steps (render_scene ~15+ sec). Server-to-server connection is more stable.
  */
-// Vercel Hobby plan max is 300s; request completes when done, no need to wait full duration
+// Vercel Hobby limit: max 300s. We do NOT hold for 300s — response ends as soon as pipeline stream completes.
 export const maxDuration = 300
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -30,11 +30,12 @@ export async function POST(request: NextRequest) {
     // Abort backend fetch when client disconnects
     request.signal.addEventListener('abort', clientAbort, { once: true })
 
-    // Set a longer timeout (6 minutes) for render_scene step which can take 2-3 minutes
+    // Abort before Vercel kills us at 300s; stream ends whenever backend finishes (no artificial hold)
+    const timeoutMs = 290 * 1000 // 290s, under Vercel maxDuration 300
     const timeoutId = setTimeout(() => {
-      console.log('📡 Pipeline proxy: backend timeout after 6 minutes, aborting')
+      console.log('📡 Pipeline proxy: backend timeout after 290s, aborting')
       controller.abort()
-    }, 6 * 60 * 1000)
+    }, timeoutMs)
 
     try {
       const response = await fetch(backendUrl, {

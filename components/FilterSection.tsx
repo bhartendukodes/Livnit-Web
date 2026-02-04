@@ -6,9 +6,19 @@ interface FilterSectionProps {
   onReset: () => void
   onBudgetChange?: (budget: number) => void
   onDimensionsChange?: (dimensions: string) => void
+  onUploadClick?: () => void
+  hasUploadedRoom?: boolean
+  uploadedFileName?: string
 }
 
-const FilterSection: React.FC<FilterSectionProps> = ({ onReset, onBudgetChange, onDimensionsChange }) => {
+const FilterSection: React.FC<FilterSectionProps> = ({
+  onReset,
+  onBudgetChange,
+  onDimensionsChange,
+  onUploadClick,
+  hasUploadedRoom = false,
+  uploadedFileName
+}) => {
   const [roomType, setRoomType] = useState('living-room')
   const [dimensions, setDimensions] = useState('12x18')
   const [budget, setBudget] = useState('5000')
@@ -40,11 +50,12 @@ const FilterSection: React.FC<FilterSectionProps> = ({ onReset, onBudgetChange, 
   }
 
   return (
-    <div className="mb-6">
+    <div className="mb-6 space-y-4">
+      {/* Top row: 3 items - Room Type, Budget, Size */}
       <div className="card-premium p-5 md:p-6">
-        <div className="flex flex-col md:flex-row gap-3 md:gap-4">
+        <div className="flex flex-col md:flex-row gap-3 md:gap-4 flex-wrap items-end">
           {/* Room Type */}
-          <div className="flex-1">
+          <div className="flex-1 min-w-[140px]">
             <label className="block text-xs font-semibold mb-1.5"
                    style={{ color: 'rgb(var(--text-secondary))' }}>
               Room Type
@@ -71,7 +82,7 @@ const FilterSection: React.FC<FilterSectionProps> = ({ onReset, onBudgetChange, 
           </div>
 
           {/* Dimensions */}
-          <div className="flex-1">
+          <div className="flex-1 min-w-[140px]">
             <label className="block text-xs font-semibold mb-1.5"
                    style={{ color: 'rgb(var(--text-secondary))' }}>
               Size
@@ -97,7 +108,7 @@ const FilterSection: React.FC<FilterSectionProps> = ({ onReset, onBudgetChange, 
           </div>
 
           {/* Budget */}
-          <div className="flex-1">
+          <div className="flex-1 min-w-[140px]">
             <label className="block text-xs font-semibold mb-1.5"
                    style={{ color: 'rgb(var(--text-secondary))' }}>
               Budget
@@ -139,6 +150,32 @@ const FilterSection: React.FC<FilterSectionProps> = ({ onReset, onBudgetChange, 
           </div>
         </div>
       </div>
+
+      {/* Below: USDZ upload */}
+      {onUploadClick && (
+        <div className="card-premium p-5 md:p-6">
+          <label className="block text-xs font-semibold mb-3" style={{ color: 'rgb(var(--text-secondary))' }}>
+            Room model (USDZ)
+          </label>
+          <button
+            type="button"
+            onClick={onUploadClick}
+            className="w-full flex items-center justify-center gap-2 px-5 py-4 rounded-xl text-sm font-medium border-2 border-dashed transition-opacity hover:opacity-90"
+            style={{
+              backgroundColor: hasUploadedRoom ? 'rgb(var(--primary-50))' : 'rgb(var(--surface-soft))',
+              color: hasUploadedRoom ? 'rgb(var(--primary-700))' : 'rgb(var(--text-secondary))',
+              borderColor: hasUploadedRoom ? 'rgb(var(--primary-300))' : 'rgb(var(--surface-muted))'
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+            {hasUploadedRoom ? (uploadedFileName ? `Room: ${uploadedFileName}` : 'Change room') : 'Upload room (USDZ) — tap to select file'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

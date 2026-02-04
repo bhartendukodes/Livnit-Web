@@ -6,15 +6,11 @@ import AnimatedSection from './AnimatedSection'
 interface DesignInputProps {
   onGenerate: (prompt: string) => void
   hasUploadedRoom?: boolean
-  onUploadClick?: () => void
-  uploadedFileName?: string
 }
 
 const DesignInput: React.FC<DesignInputProps> = ({
   onGenerate,
-  hasUploadedRoom = false,
-  onUploadClick,
-  uploadedFileName
+  hasUploadedRoom = false
 }) => {
   const [prompt, setPrompt] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -41,7 +37,6 @@ const DesignInput: React.FC<DesignInputProps> = ({
 
   const handleSuggestionClick = (suggestion: string) => {
     setPrompt(suggestion)
-    setShowSuggestions(false)
     textareaRef.current?.focus()
   }
 
@@ -67,67 +62,16 @@ const DesignInput: React.FC<DesignInputProps> = ({
         </p>
       </AnimatedSection>
 
-      {/* Step 1: Upload Room */}
-      <AnimatedSection animation="slide-up" delay={100}>
-        <div className="card-premium flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 font-semibold"
-                 style={{ 
-                   background: hasUploadedRoom 
-                     ? 'linear-gradient(135deg, rgb(var(--primary-100)) 0%, rgb(var(--primary-50)) 100%)' 
-                     : 'linear-gradient(135deg, rgb(var(--surface-muted)) 0%, rgb(var(--surface-soft)) 100%)',
-                   color: hasUploadedRoom ? 'rgb(var(--primary-600))' : 'rgb(var(--text-muted))',
-                   boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
-                 }}>
-              {hasUploadedRoom ? '✓' : '1'}
-            </div>
-            <div>
-              <p className="font-semibold text-sm" style={{ color: 'rgb(var(--text-primary))' }}>
-                Room model (USDZ)
-              </p>
-              <p className="text-xs mt-0.5" style={{ color: 'rgb(var(--text-muted))' }}>
-                {hasUploadedRoom ? uploadedFileName : 'Required — upload your room plan'}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => onUploadClick?.()}
-            className="shrink-0 px-5 py-3 rounded-2xl text-sm font-semibold transition-all hover:scale-[1.02] active:scale-[0.98]"
-            style={{
-              background: hasUploadedRoom 
-                ? 'transparent' 
-                : 'linear-gradient(135deg, rgb(var(--primary-500)) 0%, rgb(var(--primary-600)) 100%)',
-              color: hasUploadedRoom ? 'rgb(var(--primary-600))' : 'white',
-              border: hasUploadedRoom ? '1px solid rgb(var(--primary-300))' : 'none',
-              boxShadow: hasUploadedRoom ? 'none' : '0 4px 14px rgba(var(--primary-500), 0.35)'
-            }}
-          >
-            {hasUploadedRoom ? 'Change' : 'Upload'}
-          </button>
-        </div>
-      </AnimatedSection>
-
-      {/* Step 2: Describe */}
+      {/* Describe your design — no step number */}
       <AnimatedSection animation="slide-up" delay={200}>
         <div>
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 font-semibold"
-                 style={{ 
-                   background: 'linear-gradient(135deg, rgb(var(--surface-muted)) 0%, rgb(var(--surface-soft)) 100%)',
-                   color: 'rgb(var(--text-secondary))',
-                   boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
-                 }}>
-              2
-            </div>
-            <div>
-              <p className="font-semibold text-sm" style={{ color: 'rgb(var(--text-primary))' }}>
-                Describe your design
-              </p>
-              <p className="text-xs" style={{ color: 'rgb(var(--text-muted))' }}>
-                Style, furniture, colors — tell us what you want
-              </p>
-            </div>
+          <div className="mb-3">
+            <p className="font-semibold text-sm" style={{ color: 'rgb(var(--text-primary))' }}>
+              Describe your design
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: 'rgb(var(--text-muted))' }}>
+              Style, furniture, colors — tell us what you want
+            </p>
           </div>
 
           <div
@@ -150,7 +94,7 @@ const DesignInput: React.FC<DesignInputProps> = ({
             />
           </div>
 
-          {showSuggestions && !prompt && (
+          {showSuggestions && (
             <div className="mt-5">
               <p className="text-xs font-semibold mb-3 uppercase tracking-wider" style={{ color: 'rgb(var(--text-muted))' }}>
                 Quick picks

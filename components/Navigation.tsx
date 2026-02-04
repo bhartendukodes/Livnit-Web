@@ -28,15 +28,17 @@ const Navigation: React.FC<NavigationProps> = ({
 
   return (
     <AnimatedSection animation="fade-in" className="sticky top-0 z-50">
-      <nav className={`w-full px-4 py-3 flex items-center justify-between transition-all duration-200 ${
-        isScrolled 
-          ? 'compact-card backdrop-blur-md' 
-          : 'bg-transparent'
-      }`} style={{ margin: isScrolled ? '8px 16px' : '0', borderRadius: isScrolled ? '12px' : '0' }}>
+      {/* Stable layout: same margin/radius always to prevent UI fluctuation on scroll/tap */}
+      <nav
+        className={`w-full px-4 py-3 flex items-center justify-between transition-colors duration-200 ${
+          isScrolled ? 'compact-card backdrop-blur-md' : 'bg-transparent'
+        }`}
+        style={{ margin: '8px 16px', borderRadius: '12px' }}
+      >
         {/* Logo */}
         <div className="flex items-center gap-3 group cursor-pointer">
           <div className="relative">
-            <div className="w-14 h-14 rounded-lg overflow-hidden group-hover:scale-105 transition-transform duration-200 bg-transparent flex items-center justify-center p-1">
+            <div className="w-14 h-14 rounded-lg overflow-hidden group-hover:opacity-90 transition-opacity duration-200 bg-transparent flex items-center justify-center p-1">
               <Image
                 src="/logo.png"
                 alt="Livinit Logo"
@@ -66,7 +68,7 @@ const Navigation: React.FC<NavigationProps> = ({
             <button
               type="button"
               onClick={onUploadUSDZClick}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 hover:scale-105 active:scale-95"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors duration-200 hover:opacity-90 active:opacity-80"
               style={{
                 backgroundColor: hasCustomRoom ? 'rgb(var(--primary-100))' : 'rgb(var(--primary-500))',
                 color: hasCustomRoom ? 'rgb(var(--primary-700))' : 'white',

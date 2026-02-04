@@ -27,7 +27,7 @@ const SimpleGLBViewer: React.FC<SimpleGLBViewerProps> = ({
   const cameraRef = useRef<THREE.PerspectiveCamera>()
   const controlsRef = useRef<OrbitControls>()
   const animationFrameRef = useRef<number>()
-  
+
   const [objectUrl, setObjectUrl] = useState<string>('')
   const [isLoading, setIsLoading] = useState(true)
   const [isLoaded, setIsLoaded] = useState(false)
@@ -41,10 +41,12 @@ const SimpleGLBViewer: React.FC<SimpleGLBViewerProps> = ({
     setIsWebGLSupported(!!gl)
   }, [])
 
-  // Create object URL
+  // Create object URL and reset load state when file changes (e.g. new design after iteration)
   useEffect(() => {
     if (file) {
       console.log('📦 SimpleGLBViewer: Creating object URL for file size:', file.size, 'bytes')
+      setIsLoaded(false)
+      setIsLoading(true)
       const url = URL.createObjectURL(file)
       console.log('✅ SimpleGLBViewer: Object URL created:', url.substring(0, 50))
       setObjectUrl(url)
@@ -308,8 +310,7 @@ const SimpleGLBViewer: React.FC<SimpleGLBViewerProps> = ({
     if (controlsRef.current) {
       controlsRef.current.update()
     }
-    
-    // Always render (needed for initial display and smooth animation)
+
     try {
       rendererRef.current.render(sceneRef.current, cameraRef.current)
     } catch (e) {
@@ -476,6 +477,7 @@ const SimpleGLBViewer: React.FC<SimpleGLBViewerProps> = ({
           </div>
         </div>
       )}
+
     </div>
   )
 }
