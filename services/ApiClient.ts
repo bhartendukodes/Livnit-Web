@@ -695,8 +695,11 @@ export class ApiClient {
       // Clean the identifier - remove quotes if present
       const cleanIdentifier = identifier.replace(/^["']|["']$/g, '')
       
-      // Use appropriate URL based on proxy mode
-      const downloadUrl = this.getApiUrl(`download/glb/${cleanIdentifier}`)
+      // Always use same-origin proxy in browser to avoid CORS (backend has no Access-Control-Allow-Origin for /download/glb)
+      const isBrowser = typeof window !== 'undefined'
+      const downloadUrl = isBrowser
+        ? `/api/download/glb/${cleanIdentifier}`
+        : this.getApiUrl(`download/glb/${cleanIdentifier}`)
       console.log('📥 ApiClient: Fetching GLB from:', downloadUrl)
       
       // Add a small delay to let the backend finish writing the GLB file
