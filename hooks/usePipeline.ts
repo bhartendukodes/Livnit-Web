@@ -76,6 +76,7 @@ export interface UsePipelineReturn {
   downloadFinalUSDZ: () => Promise<void>
   retryPipeline: () => Promise<void>
   abortPipeline: () => void
+  clearError: () => void
   reset: () => void
 }
 
@@ -116,6 +117,11 @@ export function usePipeline(): UsePipelineReturn {
   
   // Proactive polling when in render_scene to catch completion even if SSE fails
   const proactivePollingRef = useRef<NodeJS.Timeout | null>(null)
+
+  const clearError = useCallback(() => {
+    setError(null)
+    setStatus('idle')
+  }, [])
 
   const reset = useCallback(() => {
     setStatus('idle')
@@ -623,49 +629,67 @@ export function usePipeline(): UsePipelineReturn {
       throw new ApiClientError('No output_id available for iteration. Run a design first.')
     }
 
-    try {
-      currentRequestRef.current = { 
-        userIntent, 
-        budget: budget || currentRequestRef.current?.budget || 5000, 
-        options, 
-        outputId: currentOutputId 
-      }
-      setStatus('running')
-      setError(null)
-      setProgress({ nodesCompleted: [] })
+    let attempt = 1
+    const maxRetries = 3
 
-      const pipelineRequest: PipelineRequest = {
-        user_intent: userIntent,
-        budget: budget || currentRequestRef.current?.budget || 5000,
-        output_id: currentOutputId,
-        export_glb: true,
-        run_rag_scope: false,
-        run_select_assets: true,
-        run_initial_layout: true,
-        run_refine_layout: true,
-        run_layoutvlm: true,
-        run_render_scene: true,
-        upload_to_supabase: true,
-        ...options
-      }
+    const attemptIteration = async (): Promise<void> => {
+      try {
+        currentRequestRef.current = { 
+          userIntent, 
+          budget: budget || currentRequestRef.current?.budget || 5000, 
+          options, 
+          outputId: currentOutputId 
+        }
+        setStatus('running')
+        setError(null)
+        setProgress({ nodesCompleted: [] })
 
-      console.log('🔄 Starting iteration with output_id:', currentOutputId)
-      abortControllerRef.current = new AbortController()
-      await apiClient.runPipeline(
-        pipelineRequest,
-        handlePipelineEvent,
-        handlePipelineError,
-        abortControllerRef.current.signal
-      )
-    } catch (error) {
-      console.error('❌ Iteration failed:', error)
-      if (error instanceof ApiClientError) {
-        setError(error.message)
-      } else {
-        setError(`Iteration error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        const pipelineRequest: PipelineRequest = {
+          user_intent: userIntent,
+          budget: budget || currentRequestRef.current?.budget || 5000,
+          output_id: currentOutputId,
+          export_glb: true,
+          run_rag_scope: false,
+          run_select_assets: true,
+          run_initial_layout: true,
+          run_refine_layout: true,
+          run_layoutvlm: true,
+          run_render_scene: true,
+          upload_to_supabase: true,
+          ...options
+        }
+
+        console.log('🔄 Starting iteration with output_id:', currentOutputId, `(attempt ${attempt}/${maxRetries})`)
+        abortControllerRef.current = new AbortController()
+        await apiClient.runPipeline(
+          pipelineRequest,
+          handlePipelineEvent,
+          handlePipelineError,
+          abortControllerRef.current.signal
+        )
+      } catch (error) {
+        console.error(`❌ Iteration failed (attempt ${attempt}):`, error)
+        
+        // Handle 503 / model overloaded with exponential backoff (5s, 15s, 45s)
+        if (error instanceof ApiClientError && (error.code === 'MODEL_OVERLOADED' || error.status === 503) && attempt < maxRetries) {
+          const delayMs = 5000 * Math.pow(3, attempt - 1) // 5s, 15s, 45s
+          console.log(`🔄 AI busy during iteration (503), retrying in ${delayMs / 1000}s (${attempt}/${maxRetries})...`)
+          setError(`AI is busy processing your changes. Retrying in ${delayMs / 1000} seconds... (${attempt}/${maxRetries})`)
+          await new Promise(resolve => setTimeout(resolve, delayMs))
+          attempt++
+          return attemptIteration() // Retry
+        }
+        
+        if (error instanceof ApiClientError) {
+          setError(error.message)
+        } else {
+          setError(`Iteration error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        }
+        setStatus('error')
       }
-      setStatus('error')
     }
+
+    return attemptIteration()
   }, [currentOutputId, handlePipelineEvent, handlePipelineError])
 
   const downloadFinalUSDZ = useCallback(async () => {
@@ -771,6 +795,7 @@ export function usePipeline(): UsePipelineReturn {
     downloadFinalUSDZ,
     retryPipeline,
     abortPipeline,
+    clearError,
     reset,
     currentOutputId,
     canIterate: !!currentOutputId

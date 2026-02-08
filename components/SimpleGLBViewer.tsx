@@ -146,7 +146,7 @@ const SimpleGLBViewer: React.FC<SimpleGLBViewerProps> = ({
     console.log('✅ [initScene] Scene fully initialized with lighting')
   }, [isWebGLSupported])
 
-  // Auto-frame model
+  // Auto-frame model: center in view (no tight fit/crop)
   const autoFrameModel = useCallback((model: THREE.Group) => {
     if (!cameraRef.current || !controlsRef.current) return
 
@@ -156,22 +156,23 @@ const SimpleGLBViewer: React.FC<SimpleGLBViewerProps> = ({
 
     if (size.length() === 0) return
 
-    // Center model
+    // Center model at origin so it sits in the middle of the view
     model.position.sub(center)
-    
-    // Position camera
+
+    // Camera distance: enough to see full model with padding (no crop)
     const maxDim = Math.max(size.x, size.y, size.z)
     const fov = cameraRef.current.fov * (Math.PI / 180)
     let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2))
-    cameraZ *= 1.5 // Add padding
-    
-    cameraRef.current.position.set(cameraZ * 0.5, cameraZ * 0.5, cameraZ)
+    cameraZ *= 2.0 // Extra padding so model is centered and fully visible, not fit-cropped
+
+    // Camera straight in front of center (model centered in frame)
+    cameraRef.current.position.set(0, 0, cameraZ)
     cameraRef.current.lookAt(0, 0, 0)
-    
+
     controlsRef.current.target.set(0, 0, 0)
     controlsRef.current.update()
-    
-    console.log('📐 Model auto-framed, camera at:', cameraRef.current.position)
+
+    console.log('📐 Model auto-framed (centered), camera at:', cameraRef.current.position)
   }, [])
 
   // Load GLB model
@@ -193,8 +194,12 @@ const SimpleGLBViewer: React.FC<SimpleGLBViewerProps> = ({
 
     try {
       const loader = new GLTFLoader()
-      console.log('✅ [loadModel] GLTFLoader created')
-      
+      const dracoLoader = new DRACOLoader()
+      dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/')
+      loader.setDRACOLoader(dracoLoader)
+      console.log('✅ [loadModel] GLTFLoader created with DRACOLoader')
+
+      try {
       // For large files (37MB), increase timeout to 60 seconds
       const fileSizeMB = file.size / 1024 / 1024
       const timeoutDuration = fileSizeMB > 30 ? 60000 : 30000
@@ -282,6 +287,9 @@ const SimpleGLBViewer: React.FC<SimpleGLBViewerProps> = ({
       // Call onLoadComplete immediately - animation loop will keep rendering
       onLoadComplete?.()
       console.log('✅ [loadModel] Load complete - GLB should be visible now!')
+      } finally {
+        dracoLoader.dispose()
+      }
 
     } catch (loadError) {
       console.error('❌ [loadModel] Failed to load GLB:', loadError)
@@ -466,14 +474,15 @@ const SimpleGLBViewer: React.FC<SimpleGLBViewerProps> = ({
 
       {/* Error State */}
       {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-50 bg-opacity-95 z-10 rounded-lg">
-          <div className="text-center max-w-md p-6">
-            <div className="text-red-500 text-2xl mb-4">❌</div>
-            <h3 className="text-lg font-semibold mb-2 text-gray-800">Failed to Load Model</h3>
-            <p className="text-gray-600 text-sm mb-4">{error}</p>
-            <div className="text-xs text-gray-500">
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-50/95 z-10 rounded-lg p-4">
+          <div className="text-center max-w-md p-5 rounded-2xl bg-white border border-red-200 shadow-sm">
+            <div className="text-red-500 text-2xl mb-3">⚠️</div>
+            <h3 className="text-base font-semibold mb-1 text-gray-800">Model couldn’t be loaded</h3>
+            <p className="text-red-700 text-sm mb-3">{error}</p>
+            <p className="text-xs text-gray-500">
               {'name' in file ? file.name : 'room.glb'} ({(file.size / 1024 / 1024).toFixed(1)} MB)
-            </div>
+            </p>
+            <p className="text-xs text-gray-500 mt-2">Try refreshing or generating the design again.</p>
           </div>
         </div>
       )}

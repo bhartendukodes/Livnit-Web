@@ -104,7 +104,7 @@ export class ApiClientError extends Error {
 
 export class ApiClient {
   private baseURL: string
-  private useProxy: boolean = false // Option to use Next.js API proxy routes
+  private useProxy: boolean = false // Direct backend calls like Postman, enable proxy on errors
 
   constructor(baseURL?: string) {
     this.baseURL = (
@@ -147,15 +147,15 @@ export class ApiClient {
     })
 
     try {
-      // Add timeout for upload (5 minutes for large files)
+      // Try direct backend first (like Postman), fallback to proxy on CORS
+      const uploadUrl = `${this.baseURL}/upload/room`
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000)
 
-      const response = await fetch(`${this.baseURL}/upload/room`, {
+      const response = await fetch(uploadUrl, {
         method: 'POST',
         body: formData,
         signal: controller.signal,
-        // Don't set Content-Type header - let browser set it with boundary for FormData
       })
 
       clearTimeout(timeoutId)
@@ -171,34 +171,56 @@ export class ApiClient {
       const json = await response.json()
       console.log('✅ Upload successful:', json)
       return json
-    } catch (error) {
-      if (error instanceof ApiClientError) {
-        throw error
-      }
-      
-      // Handle network-specific errors
-      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+      } catch (error) {
+        if (error instanceof ApiClientError) {
+          throw error
+        }
+        
+        // Handle CORS by retrying with proxy
+        if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+          console.log('🔄 Upload CORS detected, retrying with proxy...')
+          try {
+            const proxyResponse = await fetch('/api/upload/room', {
+              method: 'POST',
+              body: formData,
+              signal: controller.signal,
+            })
+            clearTimeout(timeoutId)
+            
+            if (!proxyResponse.ok) {
+              const errorData = await proxyResponse.json().catch(() => ({ detail: 'Upload failed' }))
+              throw new ApiClientError(
+                errorData.detail || `Upload failed with status ${proxyResponse.status}`,
+                proxyResponse.status
+              )
+            }
+            
+            const json = await proxyResponse.json()
+            console.log('✅ Upload successful via proxy:', json)
+            return json
+          } catch (proxyError) {
+            throw new ApiClientError(
+              'Upload failed even with proxy. Please check your connection and try again.',
+              0,
+              'NETWORK_DISCONNECTED'
+            )
+          }
+        }
+        
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          throw new ApiClientError(
+            'Upload timeout - file is too large or connection too slow. Please try with a smaller file.',
+            0,
+            'UPLOAD_TIMEOUT'
+          )
+        }
+        
         throw new ApiClientError(
-          'Network connection failed. Please check your internet connection and try again.',
+          `Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
           0,
-          'NETWORK_DISCONNECTED'
+          'UPLOAD_ERROR'
         )
       }
-      
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        throw new ApiClientError(
-          'Upload timeout - file is too large or connection too slow. Please try with a smaller file.',
-          0,
-          'UPLOAD_TIMEOUT'
-        )
-      }
-      
-      throw new ApiClientError(
-        `Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        0,
-        'UPLOAD_ERROR'
-      )
-    }
   }
 
   /**
@@ -265,18 +287,20 @@ export class ApiClient {
 
         // Use appropriate URL based on proxy mode
         const pipelineUrl = this.getApiUrl('pipeline')
+        const requestBody = JSON.stringify(request)
+        console.log('🚀 Pipeline request URL:', pipelineUrl)
+        console.log('📋 Pipeline request body:', requestBody)
+        
         const response = await fetch(pipelineUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'text/event-stream',
             'Cache-Control': 'no-cache',
-            // Remove Connection header - let browser handle it
-            'X-Requested-With': 'livinit-pipeline',
+            'User-Agent': 'Livinit-Web/1.0 (like Postman)',
           },
-          body: JSON.stringify(request),
+          body: requestBody,
           signal: abortSignal,
-          // Remove keepalive - can cause chunking issues with some proxies
         })
 
         if (!response.ok) {
@@ -389,17 +413,24 @@ export class ApiClient {
                       }
                     }
 
-                    // Handle errors
+                    // Handle errors - be less aggressive than before to match Postman behavior
                     if (data.type === 'error') {
-                      console.error('❌ Pipeline error event:', data)
+                      console.log('📡 Pipeline SSE error event:', data)
                       const rawMessage = data.message || 'Pipeline failed'
                       const isOverloaded = rawMessage.includes('503') || rawMessage.includes('overloaded') || rawMessage.includes('UNAVAILABLE')
-                      const friendlyMessage = isOverloaded
-                        ? "Our AI is busy right now. We'll retry automatically in a few seconds—please wait."
-                        : rawMessage
-                      const code = isOverloaded ? 'MODEL_OVERLOADED' : 'PIPELINE_ERROR'
-                      const status = isOverloaded ? 503 : 0
-                      resolveOnceWithCleanup(new ApiClientError(friendlyMessage, status, code))
+                      
+                      // For 503 errors, just log them but continue the stream (like Postman)
+                      // The backend may retry internally or the next event might succeed
+                      if (isOverloaded) {
+                        console.log('⚠️ 503 overload detected in SSE stream, but continuing to listen for recovery...')
+                        // Don't throw immediately - let the stream continue in case the backend recovers
+                        onEvent({ ...data, type: 'node_progress', current: 0, total: 1 }) // Show as progress event instead
+                        return // Skip this error event but keep stream open
+                      }
+                      
+                      // For critical errors, resolve immediately
+                      console.error('❌ Critical pipeline error:', rawMessage)
+                      resolveOnceWithCleanup(new ApiClientError(rawMessage, 0, 'PIPELINE_ERROR'))
                       return
                     }
                   } catch (parseError) {

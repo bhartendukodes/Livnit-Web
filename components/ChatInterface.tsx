@@ -10,17 +10,27 @@ interface ChatInterfaceProps {
   onDownloadUSDZ?: () => void
   canIterate?: boolean
   onIterate?: (userIntent: string) => Promise<void>
+  pipelineStatus?: 'idle' | 'uploading' | 'running' | 'completed' | 'error' | 'aborted'
+  pipelineProgress?: {
+    currentNode?: string
+    currentNodeIndex?: number
+    totalNodes?: number
+    nodesCompleted: string[]
+  }
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
   initialMessage = '', 
   pipelineResult,
   canIterate = false,
-  onIterate
+  onIterate,
+  pipelineStatus = 'idle',
+  pipelineProgress
 }) => {
   const [message, setMessage] = useState('')
-  const [chatHistory, setChatHistory] = useState<Array<{ type: 'user' | 'ai'; text: string; timestamp: Date }>>([])
+  const [chatHistory, setChatHistory] = useState<Array<{ type: 'user' | 'ai'; text: string; timestamp: Date; isStreaming?: boolean }>>([])
   const [isTyping, setIsTyping] = useState(false)
+  const [isIterating, setIsIterating] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const lastResultRunDir = useRef<string | null>(null)
 
@@ -58,6 +68,37 @@ Your design includes optimized furniture placement, realistic 3D visualization, 
     }, 2000)
   }, [pipelineResult, canIterate])
 
+  // Update typing state based on pipeline status during iteration
+  useEffect(() => {
+    if (pipelineStatus === 'running' && isIterating) {
+      setIsTyping(true)
+    } else if (pipelineStatus === 'completed' && isIterating) {
+      setIsIterating(false)
+      setIsTyping(false)
+      // Remove processing message and add success message
+      setChatHistory(prev => {
+        const withoutProcessing = prev.filter(msg => !msg.isStreaming)
+        return [...withoutProcessing, { 
+          type: 'ai', 
+          text: "✨ Perfect! I've updated your design with your changes. Take a look at the new layout and let me know if you'd like any other adjustments.", 
+          timestamp: new Date() 
+        }]
+      })
+    } else if (pipelineStatus === 'error' && isIterating) {
+      setIsIterating(false)
+      setIsTyping(false)
+      // Remove processing message and add error message
+      setChatHistory(prev => {
+        const withoutProcessing = prev.filter(msg => !msg.isStreaming)
+        return [...withoutProcessing, { 
+          type: 'ai', 
+          text: "I'm having trouble processing that change right now. Our AI is busy—please try again in a moment.", 
+          timestamp: new Date() 
+        }]
+      })
+    }
+  }, [pipelineStatus, isIterating])
+
   const handleSend = async () => {
     if (!message.trim()) return
     
@@ -67,18 +108,32 @@ Your design includes optimized furniture placement, realistic 3D visualization, 
     
     // If can iterate (have output_id), use iteration API
     if (canIterate && onIterate) {
+      setIsIterating(true)
       setIsTyping(true)
+      // Add a "processing" message
+      setChatHistory(prev => [...prev, { 
+        type: 'ai', 
+        text: "I'm updating your design now. This may take a few moments...", 
+        timestamp: new Date(),
+        isStreaming: true
+      }])
+      
       try {
         console.log('🔄 Iterating design with message:', userMessage)
         await onIterate(userMessage)
-        // Pipeline will handle the response via the existing handlePipelineEvent
+        // Note: Success/error handling moved to useEffect watching pipelineStatus
       } catch (error) {
         console.error('❌ Iteration failed:', error)
-        setChatHistory(prev => [...prev, { 
-          type: 'ai', 
-          text: "Sorry, I couldn't process that change right now. Please try again or be more specific about what you'd like to modify.", 
-          timestamp: new Date() 
-        }])
+        // Immediate error (e.g., network failure before pipeline starts)
+        setChatHistory(prev => {
+          const withoutProcessing = prev.filter(msg => !msg.isStreaming)
+          return [...withoutProcessing, { 
+            type: 'ai', 
+            text: "Sorry, I couldn't start processing that change. Please check your connection and try again.", 
+            timestamp: new Date() 
+          }]
+        })
+        setIsIterating(false)
         setIsTyping(false)
       }
     } else {
@@ -192,7 +247,12 @@ Your design includes optimized furniture placement, realistic 3D visualization, 
                         <span className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgb(var(--primary-400))', animationDelay: '300ms' }} />
                       </div>
                       <span className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
-                        {canIterate ? 'Processing your changes...' : 'Your room design is being prepared...'}
+                        {isIterating 
+                          ? pipelineProgress?.currentNode 
+                            ? `Processing: ${pipelineProgress.currentNode.replace('_', ' ')}...`
+                            : 'Updating your design...'
+                          : canIterate ? 'Processing your changes...' : 'Your room design is being prepared...'
+                        }
                       </span>
                     </div>
                   </div>

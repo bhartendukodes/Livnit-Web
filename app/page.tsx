@@ -4,6 +4,8 @@ import React, { useState } from 'react'
 import FileUploadModal from '@/components/FileUploadModal'
 import PipelineProgressModal from '@/components/PipelineProgressModal'
 import NetworkStatus from '@/components/NetworkStatus'
+import RoomView from '@/components/RoomView'
+import ChatInterface from '@/components/ChatInterface'
 import { usePipeline } from '@/hooks/usePipeline'
 
 // Inline icons (no lucide-react dependency)
@@ -46,6 +48,7 @@ export default function Home() {
   const [currentScreen, setCurrentScreen] = useState<'input' | 'result'>('input')
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [userPrompt, setUserPrompt] = useState('')
+  const [selectedRoomType, setSelectedRoomType] = useState<string>('Living Room')
   const [selectedBudget, setSelectedBudget] = useState<string>('Standard ($5k - $15k)')
   const [selectedDimensions, setSelectedDimensions] = useState<string>('Standard (150-300 sqft)')
   const [uploadedUsdzFile, setUploadedUsdzFile] = useState<File | null>(null)
@@ -55,9 +58,19 @@ export default function Home() {
     progress,
     error: pipelineError,
     result: pipelineResult,
+    finalUsdzBlob,
+    finalGlbBlob,
+    previewImages,
+    renderImages,
+    optimizationGif,
+    isDownloadingAssets,
+    downloadProgress,
     uploadAndRunPipeline,
+    iterateDesign,
+    downloadFinalUSDZ,
     retryPipeline,
     abortPipeline,
+    clearError,
     canIterate
   } = usePipeline()
 
@@ -91,12 +104,74 @@ export default function Home() {
   const handleReset = () => {
     setUserPrompt('')
     setUploadedUsdzFile(null)
+    setSelectedRoomType('Living Room')
     setSelectedBudget('Standard ($5k - $15k)')
     setSelectedDimensions('Standard (150-300 sqft)')
   }
 
+  const isLivingRoom = selectedRoomType === 'Living Room'
+
   if (currentScreen === 'result') {
-    return <div>Result Screen - Add your RoomView and ChatInterface components here</div>
+    return (
+      <div className="min-h-screen flex flex-col bg-white">
+        {/* Top bar on result screen */}
+        <nav className="shrink-0 flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-gray-50/50">
+          <a href="https://livinit-ai.vercel.app/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+            <img src="/logo.png" alt="Livinit" className="w-10 h-10 object-contain" />
+            <span className="font-bold text-gray-900">Livinit</span>
+          </a>
+          <button
+            type="button"
+            onClick={() => setCurrentScreen('input')}
+            className="text-sm font-medium text-gray-600 hover:text-blue-500"
+          >
+            ← New design
+          </button>
+        </nav>
+        <main className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-0 px-2 sm:px-4 py-2">
+          <div className="lg:col-span-8 min-h-0 flex flex-col">
+            <div className="flex-1 min-h-0 flex flex-col rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden">
+              <RoomView
+                finalUsdzBlob={finalUsdzBlob}
+                finalGlbBlob={finalGlbBlob}
+                previewImages={previewImages}
+                renderImages={renderImages}
+                optimizationGif={optimizationGif}
+                pipelineResult={pipelineResult}
+                onDownloadUSDZ={downloadFinalUSDZ}
+                isDownloadingAssets={isDownloadingAssets}
+                downloadProgress={downloadProgress}
+                status={pipelineStatus}
+              />
+            </div>
+          </div>
+          <div className="lg:col-span-4 min-h-[50vh] lg:min-h-0 flex flex-col">
+            <div className="flex-1 min-h-0 rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden flex flex-col">
+              <ChatInterface
+                initialMessage={userPrompt}
+                pipelineResult={pipelineResult}
+                onDownloadUSDZ={downloadFinalUSDZ}
+                canIterate={canIterate}
+                onIterate={iterateDesign}
+                pipelineStatus={pipelineStatus}
+                pipelineProgress={progress}
+              />
+            </div>
+          </div>
+        </main>
+        <PipelineProgressModal
+          isOpen={['uploading', 'running', 'error'].includes(pipelineStatus)}
+          status={pipelineStatus}
+          progress={progress}
+          error={pipelineError}
+          onClose={clearError}
+          onRetry={retryPipeline}
+          onAbort={abortPipeline}
+          isIteration={canIterate && !!pipelineResult}
+        />
+        <NetworkStatus />
+      </div>
+    )
   }
 
   return (
@@ -158,14 +233,28 @@ export default function Home() {
           {/* Main Configuration Card */}
           <div className="max-w-5xl mx-auto bg-white rounded-[3rem] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.04)] border border-gray-100 overflow-hidden flex flex-col">
             
-            {/* Room selection: Living Room fixed + Dimensions + Budget */}
+            {/* Room selection: Room type dropdown (only Living Room working) + Dimensions + Budget */}
             <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-gray-200 border-b border-gray-100 shrink-0">
-              {/* 01. Room type — fixed Living Room */}
-              <div className="p-6 md:p-8">
+              {/* 01. Room type — Living Room working, rest coming soon */}
+              <div className={`p-6 md:p-8 group ${selectedRoomType !== 'Living Room' ? 'bg-gray-50/80' : ''}`}>
                 <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">
                   01. Room type
                 </label>
-                <p className="text-base md:text-lg font-bold text-gray-900">Living Room</p>
+                <div className="relative">
+                  <select
+                    value={selectedRoomType}
+                    onChange={(e) => setSelectedRoomType(e.target.value)}
+                    className="w-full bg-transparent text-base md:text-lg font-bold outline-none appearance-none cursor-pointer text-gray-900"
+                  >
+                    <option value="Living Room">Living Room</option>
+                    <option value="Bedroom" disabled>Bedroom (coming soon)</option>
+                    <option value="Kitchen" disabled>Kitchen (coming soon)</option>
+                    <option value="Dining Room" disabled>Dining Room (coming soon)</option>
+                    <option value="Home Office" disabled>Home Office (coming soon)</option>
+                    <option value="Studio Apartment" disabled>Studio Apartment (coming soon)</option>
+                  </select>
+                  <IconChevronDown className="absolute right-0 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                </div>
               </div>
               {/* 02. Dimensions */}
               <div className={`p-6 md:p-8 group cursor-pointer hover:bg-gray-50/50 transition-colors ${selectedDimensions !== 'Standard (150-300 sqft)' ? 'bg-blue-50/80' : ''}`}>
@@ -285,16 +374,21 @@ export default function Home() {
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 resize-none min-h-[88px] transition-all"
                   />
                   <div className="flex justify-between items-center mt-4">
-                    <button
-                      type="button"
-                      onClick={handleReset}
-                      className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all"
-                    >
-                      Reset
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleReset}
+                        className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all"
+                      >
+                        Reset
+                      </button>
+                      {!isLivingRoom && (
+                        <span className="text-xs text-amber-600 font-medium">Only Living Room is available right now.</span>
+                      )}
+                    </div>
                     <button
                       onClick={handleGenerate}
-                      disabled={!uploadedUsdzFile || !userPrompt.trim() || !selectedBudget || pipelineStatus === 'uploading' || pipelineStatus === 'running'}
+                      disabled={!isLivingRoom || !uploadedUsdzFile || !userPrompt.trim() || !selectedBudget || pipelineStatus === 'uploading' || pipelineStatus === 'running'}
                       className="bg-blue-500 text-white px-8 py-3 rounded-xl font-semibold text-sm flex items-center gap-2 hover:bg-blue-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-blue-500/25"
                     >
                       {pipelineStatus === 'uploading' || pipelineStatus === 'running' ? (
@@ -338,11 +432,11 @@ export default function Home() {
 
       {/* Pipeline Progress Modal */}
       <PipelineProgressModal
-        isOpen={['uploading', 'running'].includes(pipelineStatus)}
+        isOpen={['uploading', 'running', 'error'].includes(pipelineStatus)}
         status={pipelineStatus}
         progress={progress}
         error={pipelineError}
-        onClose={() => {}}
+        onClose={clearError}
         onRetry={retryPipeline}
         onAbort={abortPipeline}
         isIteration={canIterate && pipelineResult !== null}

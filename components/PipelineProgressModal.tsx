@@ -148,7 +148,7 @@ const PipelineProgressModal: React.FC<PipelineProgressModalProps> = ({
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={status === 'completed' ? onClose : undefined}
+        onClick={status === 'completed' || status === 'error' ? onClose : undefined}
       />
 
       {/* Card */}
@@ -285,31 +285,42 @@ const PipelineProgressModal: React.FC<PipelineProgressModalProps> = ({
             </div>
           )}
 
-          {/* Error */}
+          {/* Error - proper message with heading and readable text */}
           {status === 'error' && error && (
             <>
               <div 
-                className="mb-4 p-4 rounded-2xl"
+                className="mb-4 p-5 rounded-2xl"
                 style={{ backgroundColor: 'rgb(254 242 242)', border: '1px solid rgb(254 202 202)' }}
               >
-                <p className="text-red-700 text-sm">{error}</p>
+                <p className="text-red-800 font-semibold text-sm mb-2">What went wrong</p>
+                <p className="text-red-700 text-sm leading-relaxed">{error}</p>
               </div>
-              
+
               {/* Network-specific guidance */}
-              {(error.includes('Network') || error.includes('connection')) && (
+              {(error.toLowerCase().includes('network') || error.toLowerCase().includes('connection') || error.toLowerCase().includes('internet')) && (
                 <div 
                   className="mb-4 p-4 rounded-2xl"
                   style={{ backgroundColor: 'rgb(239 246 255)', border: '1px solid rgb(191 219 254)' }}
                 >
                   <div className="text-blue-800">
-                    <div className="font-medium mb-2 text-sm">💡 Network troubleshooting:</div>
+                    <p className="font-medium mb-2 text-sm">💡 Try this:</p>
                     <ul className="space-y-1 text-xs">
                       <li>• Check your internet connection</li>
-                      <li>• Try moving closer to your router</li>
-                      <li>• Disable VPN if active</li>
-                      <li>• Use a smaller USDZ file (&lt;10MB)</li>
+                      <li>• Move closer to your router or switch to a stable network</li>
+                      <li>• Turn off VPN if you’re using one</li>
+                      <li>• Use a smaller room file (under 10 MB)</li>
                     </ul>
                   </div>
+                </div>
+              )}
+
+              {/* Server busy / retry guidance */}
+              {(error.toLowerCase().includes('busy') || error.toLowerCase().includes('503') || error.toLowerCase().includes('retry')) && (
+                <div 
+                  className="mb-4 p-4 rounded-2xl"
+                  style={{ backgroundColor: 'rgb(255 251 235)', border: '1px solid rgb(253 230 138)' }}
+                >
+                  <p className="text-amber-800 text-sm">Our AI is under heavy load. Click <strong>Try Again</strong> in a few seconds.</p>
                 </div>
               )}
             </>
