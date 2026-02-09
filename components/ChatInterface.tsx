@@ -92,7 +92,7 @@ Your design includes optimized furniture placement, realistic 3D visualization, 
         const withoutProcessing = prev.filter(msg => !msg.isStreaming)
         return [...withoutProcessing, { 
           type: 'ai', 
-          text: "I'm having trouble processing that change right now. Our AI is busy—please try again in a moment.", 
+          text: "I'm having trouble processing that change right now. Our AI is busy. Please try again in a moment.", 
           timestamp: new Date() 
         }]
       })
@@ -188,7 +188,7 @@ Your design includes optimized furniture placement, realistic 3D visualization, 
               I&apos;m here to help with your design
             </p>
             <p className="text-xs max-w-[200px] mx-auto" style={{ color: 'rgb(var(--text-muted))' }}>
-              Ask about furniture, layouts, or anything — or start a new design above.
+              Ask about furniture, layouts, or anything. Or start a new design above.
             </p>
           </div>
         ) : (
