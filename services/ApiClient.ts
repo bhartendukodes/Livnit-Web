@@ -180,12 +180,14 @@ export class ApiClient {
         if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
           console.log('🔄 Upload CORS detected, retrying with proxy...')
           try {
+            const proxyController = new AbortController()
+            const proxyTimeoutId = setTimeout(() => proxyController.abort(), 5 * 60 * 1000)
             const proxyResponse = await fetch('/api/upload/room', {
               method: 'POST',
               body: formData,
-              signal: controller.signal,
+              signal: proxyController.signal,
             })
-            clearTimeout(timeoutId)
+            clearTimeout(proxyTimeoutId)
             
             if (!proxyResponse.ok) {
               const errorData = await proxyResponse.json().catch(() => ({ detail: 'Upload failed' }))
